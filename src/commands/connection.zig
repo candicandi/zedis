@@ -1,46 +1,51 @@
 const std = @import("std");
 const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
+const resp = @import("../commands/resp.zig");
 
 // PING command implementation
-pub fn ping(client: *Client, args: []const Value) !void {
+pub fn ping(writer: *std.Io.Writer, args: []const Value) !void {
     if (args.len == 1) {
-        try client.writeBulkString("PONG");
+        try resp.writeBulkString(writer, "PONG");
     } else {
-        try client.writeBulkString(args[1].asSlice());
+        try resp.writeBulkString(writer, args[1].asSlice());
     }
 }
 
 // ECHO command implementation
-pub fn echo(client: *Client, args: []const Value) !void {
-    try client.writeBulkString(args[1].asSlice());
+pub fn echo(writer: *std.Io.Writer, args: []const Value) !void {
+    try resp.writeBulkString(writer, args[1].asSlice());
 }
 
 // QUIT command implementation
 pub fn quit(client: *Client, args: []const Value) !void {
+    var sw = client.connection.stream.writer(&.{});
+    const writer = &sw.interface;
     _ = args; // Unused parameter
-    try client.writeBulkString("OK");
+    try resp.writeBulkString(writer, "OK");
     client.connection.stream.close();
 }
 
 pub fn auth(client: *Client, args: []const Value) !void {
+    var sw = client.connection.stream.writer(&.{});
+    const writer = &sw.interface;
     const password = args[1].asSlice();
 
     if (!client.server.config.requiresAuth()) {
-        return client.writeError("ERR Client sent AUTH, but no password is set", .{});
+        return resp.writeError(writer, "ERR Client sent AUTH, but no password is set");
     }
 
     if (std.mem.eql(u8, password, client.server.config.requirepass.?)) {
         client.authenticated = true;
-        try client.writeBulkString("OK");
+        try resp.writeBulkString(writer, "OK");
     } else {
         client.authenticated = false;
-        try client.writeError("ERR invalid password", .{});
+        try resp.writeError(writer, "ERR invalid password");
     }
 }
 
 // HELP command implementation
-pub fn help(client: *Client, args: []const Value) !void {
+pub fn help(writer: *std.Io.Writer, args: []const Value) !void {
     _ = args; // Unused parameter
     const help_text =
         \\Zedis Server Commands:
@@ -58,5 +63,5 @@ pub fn help(client: *Client, args: []const Value) !void {
         \\  DECR <key>         - Decrement the value of a key
     ;
 
-    try client.writeBulkString(help_text);
+    try resp.writeBulkString(writer, help_text);
 }

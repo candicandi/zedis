@@ -18,6 +18,9 @@ comptime {
     _ = @import("rdb/checksum.zig");
     _ = @import("rdb/zdb.zig");
 
+    // AOF tests
+    _ = @import("aof/aof.zig");
+
     // Test utilities
     _ = @import("test_utils.zig");
 

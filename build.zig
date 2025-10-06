@@ -32,6 +32,11 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the application");
     run_step.dependOn(&run_cmd.step);
 
+    // For ZLS - builds but doesn't install anything
+    const check_exe = b.addExecutable(.{ .name = "check", .root_module = exe.root_module });
+    const check_step = b.step("check", "check for build errors");
+    check_step.dependOn(&check_exe.step);
+
     // Test steps - enhanced test runner system
     const unit_tests = b.addTest(.{
         .name = "test-unit",

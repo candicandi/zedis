@@ -12,180 +12,220 @@ pub fn initRegistry(allocator: Allocator) !CommandRegistry {
 
     try registry.register(.{
         .name = "PING",
-        .handler = connection_commands.ping,
+        .handler = .{ .default = connection_commands.ping },
         .min_args = 1,
         .max_args = 2,
         .description = "Ping the server",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "ECHO",
-        .handler = connection_commands.echo,
+        .handler = .{ .default = connection_commands.echo },
         .min_args = 2,
         .max_args = 2,
         .description = "Echo the given string",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "QUIT",
-        .handler = connection_commands.quit,
+        .handler = .{ .client_handler = connection_commands.quit },
         .min_args = 1,
         .max_args = 1,
         .description = "Close the connection",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "SET",
-        .handler = string.set,
+        .handler = .{ .store_handler = string.set },
         .min_args = 3,
         .max_args = 3,
         .description = "Set string value of a key",
+        .write_to_aof = true,
     });
 
     try registry.register(.{
         .name = "GET",
-        .handler = string.get,
+        .handler = .{ .store_handler = string.get },
         .min_args = 2,
         .max_args = 2,
         .description = "Get string value of a key",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "INCR",
-        .handler = string.incr,
+        .handler = .{ .store_handler = string.incr },
         .min_args = 2,
         .max_args = 2,
         .description = "Increment the value of a key",
+        .write_to_aof = true,
     });
 
     try registry.register(.{
         .name = "DECR",
-        .handler = string.decr,
+        .handler = .{ .store_handler = string.decr },
         .min_args = 2,
         .max_args = 2,
         .description = "Decrement the value of a key",
+        .write_to_aof = true,
     });
 
     try registry.register(.{
         .name = "HELP",
-        .handler = connection_commands.help,
+        .handler = .{ .default = connection_commands.help },
         .min_args = 1,
         .max_args = 1,
         .description = "Show help message",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "DEL",
-        .handler = string.del,
+        .handler = .{ .store_handler = string.del },
         .min_args = 2,
         .max_args = null,
         .description = "Delete key",
+        .write_to_aof = true,
     });
 
     try registry.register(.{
         .name = "SAVE",
-        .handler = rdb.save,
+        .handler = .{ .client_handler = rdb.save },
         .min_args = 1,
         .max_args = 1,
         .description = "The SAVE commands performs a synchronous save of the dataset producing a point in time snapshot of all the data inside the Redis instance, in the form of an RDB file.",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "PUBLISH",
-        .handler = pubsub.publish,
+        .handler = .{ .client_handler = pubsub.publish },
         .min_args = 3,
         .max_args = 3,
         .description = "Publish message",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "SUBSCRIBE",
-        .handler = pubsub.subscribe,
+        .handler = .{ .client_handler = pubsub.subscribe },
         .min_args = 2,
         .max_args = null,
         .description = "Subscribe to channels",
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "EXPIRE",
-        .handler = string.expire,
+        .handler = .{ .store_handler = string.expire },
         .min_args = 3,
         .max_args = null,
         .description = "Expire key",
+        // TODO: convert to expireat
+        .write_to_aof = false,
+    });
+
+    try registry.register(.{
+        .name = "EXPIREAT",
+        .handler = .{ .store_handler = string.expireAt },
+        .min_args = 3,
+        .max_args = null,
+        .description = "Expire key",
+        .write_to_aof = true,
     });
 
     try registry.register(.{
         .name = "AUTH",
-        .handler = connection_commands.auth,
+        .handler = .{ .client_handler = connection_commands.auth },
         .min_args = 2,
         .max_args = 2,
         .description = "Authenticate to the server",
+        .write_to_aof = false,
     });
 
     // List commands: LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE
 
     try registry.register(.{
         .name = "LPUSH",
-        .handler = list.lpush,
+        .handler = .{ .store_handler = list.lpush },
         .min_args = 3,
         .max_args = null,
         .description = "Prepend one or multiple values to a list",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "RPUSH",
-        .handler = list.rpush,
+        .handler = .{ .store_handler = list.rpush },
         .min_args = 3,
         .max_args = null,
         .description = "Append one or multiple values to a list",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "LPOP",
-        .handler = list.lpop,
+        .handler = .{ .store_handler = list.lpop },
         .min_args = 2,
         .max_args = 3,
         .description = "Remove and return the first element of a list",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "RPOP",
-        .handler = list.rpop,
+        .handler = .{ .store_handler = list.rpop },
         .min_args = 2,
         .max_args = 3,
         .description = "Remove and return the last element of a list",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "LLEN",
-        .handler = list.llen,
+        .handler = .{ .store_handler = list.llen },
         .min_args = 2,
         .max_args = 2,
         .description = "Get the length of a list",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "LINDEX",
-        .handler = list.lindex,
+        .handler = .{ .store_handler = list.lindex },
         .min_args = 3,
         .max_args = 3,
         .description = "Get an element from a list by its index",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "LSET",
-        .handler = list.lset,
+        .handler = .{ .store_handler = list.lset },
         .min_args = 4,
         .max_args = 4,
         .description = "Set the value of an element in a list by its index",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     try registry.register(.{
         .name = "LRANGE",
-        .handler = list.lrange,
+        .handler = .{ .store_handler = list.lrange },
         .min_args = 4,
         .max_args = 4,
         .description = "Get a range of elements from a list",
+        // TODO: test
+        .write_to_aof = false,
     });
 
     return registry;

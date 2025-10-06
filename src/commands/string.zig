@@ -4,6 +4,7 @@ const Store = storeModule.Store;
 const ZedisObject = storeModule.ZedisObject;
 const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
+const resp = @import("./resp.zig");
 
 pub const StringCommandError = error{
     WrongType,
@@ -19,32 +20,30 @@ fn getErrorMessage(err: StringCommandError) []const u8 {
     };
 }
 
-pub fn set(client: *Client, args: []const Value) !void {
+pub fn set(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = args[2].asSlice();
 
     const maybe_int = std.fmt.parseInt(i64, value, 10);
 
     if (maybe_int) |int_value| {
-        try client.store.setInt(key, int_value);
+        try store.setInt(key, int_value);
     } else |_| {
-        try client.store.setString(key, value);
+        try store.setString(key, value);
     }
 
-    try client.writeBulkString("OK");
+    try resp.writeBulkString(writer, "OK");
 }
 
-pub fn get(client: *Client, args: []const Value) !void {
+pub fn get(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const value = client.store.get(key);
+    const value = store.get(key);
 
     if (value) |v| {
         switch (v.value) {
-            .string => |s| try client.writeBulkString(s),
+            .string => |s| try resp.writeBulkString(writer, s),
             .int => |i| {
-                const int_str = try std.fmt.allocPrint(client.allocator, "{d}", .{i});
-                defer client.allocator.free(int_str);
-                try client.writeBulkString(int_str);
+                try resp.writeIntBulkString(writer, i);
             },
             .list => |*list| {
                 var current = list.list.first;
@@ -53,11 +52,9 @@ pub fn get(client: *Client, args: []const Value) !void {
                     const entry = list_node.data;
 
                     switch (entry) {
-                        .string => |str| try client.writeBulkString(str),
+                        .string => |str| try resp.writeBulkString(writer, str),
                         .int => |i| {
-                            const int_str = try std.fmt.allocPrint(client.allocator, "{d}", .{i});
-                            defer client.allocator.free(int_str);
-                            try client.writeBulkString(int_str);
+                            try resp.writeIntBulkString(writer, i);
                         },
                     }
 
@@ -66,58 +63,52 @@ pub fn get(client: *Client, args: []const Value) !void {
             },
         }
     } else {
-        try client.writeNull();
+        try resp.writeNull(writer);
     }
 }
 
-pub fn incr(client: *Client, args: []const Value) !void {
+pub fn incr(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const new_value = incrDecr(client.store, key, 1) catch |err| switch (err) {
+    const new_value = incrDecr(store, key, 1) catch |err| switch (err) {
         StringCommandError.WrongType => |e| {
-            return client.writeError("{s}", .{getErrorMessage(e)});
+            try resp.writeError(writer, getErrorMessage(e));
+            return e;
         },
         StringCommandError.ValueNotInteger => |e| {
-            return client.writeError("{s}", .{getErrorMessage(e)});
+            try resp.writeError(writer, getErrorMessage(e));
+            return e;
         },
-        StringCommandError.KeyNotFound => {
+        StringCommandError.KeyNotFound => |e| {
             // For INCR on non-existent key, Redis creates it with value 0 then increments
-            try client.store.setInt(key, 1);
-            const result_str = try std.fmt.allocPrint(client.allocator, "{d}", .{1});
-            defer client.allocator.free(result_str);
-            try client.writeBulkString(result_str);
-            return;
+            try store.setInt(key, 1);
+            try resp.writeSingleIntBulkString(writer, 1);
+            return e;
         },
         else => return err,
     };
 
-    const result_str = try std.fmt.allocPrint(client.allocator, "{d}", .{new_value});
-    defer client.allocator.free(result_str);
-    try client.writeBulkString(result_str);
+    try resp.writeIntBulkString(writer, new_value);
 }
 
-pub fn decr(client: *Client, args: []const Value) !void {
+pub fn decr(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const new_value = incrDecr(client.store, key, -1) catch |err| switch (err) {
+    const new_value = incrDecr(store, key, -1) catch |err| switch (err) {
         StringCommandError.WrongType => {
-            return client.writeError("ERR value is not an integer or out of range", .{});
+            return resp.writeError(writer, "ERR value is not an integer or out of range");
         },
         StringCommandError.ValueNotInteger => {
-            return client.writeError("ERR value is not an integer or out of range", .{});
+            return resp.writeError(writer, "ERR value is not an integer or out of range");
         },
         StringCommandError.KeyNotFound => {
             // For DECR on non-existent key, Redis creates it with value 0 then decrements
-            try client.store.setInt(key, -1);
-            const result_str = try std.fmt.allocPrint(client.allocator, "{d}", .{-1});
-            defer client.allocator.free(result_str);
-            try client.writeBulkString(result_str);
+            try store.setInt(key, -1);
+            try resp.writeSingleIntBulkString(writer, -1);
             return;
         },
         else => return err,
     };
 
-    const result_str = try std.fmt.allocPrint(client.allocator, "{d}", .{new_value});
-    defer client.allocator.free(result_str);
-    try client.writeBulkString(result_str);
+    try resp.writeIntBulkString(writer, new_value);
 }
 
 fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
@@ -151,29 +142,44 @@ fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
     }
 }
 
-pub fn del(client: *Client, args: []const Value) !void {
+pub fn del(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     var deleted: u32 = 0;
     for (args[1..]) |key| {
-        if (client.store.delete(key.asSlice())) {
+        if (store.delete(key.asSlice())) {
             deleted += 1;
         }
     }
 
-    try client.writeInt(deleted);
+    try resp.writeInt(writer, deleted);
 }
 
-pub fn expire(client: *Client, args: []const Value) !void {
+pub fn expire(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const expiration_seconds = args[2].asInt() catch {
-        return client.writeInt(0);
+        return resp.writeInt(writer, 0);
     };
 
     const result = if (expiration_seconds < 0)
-        client.store.delete(key)
+        store.delete(key)
     else
-        client.store.expire(key, std.time.milliTimestamp() + (expiration_seconds * 1000)) catch false;
+        store.expire(key, std.time.milliTimestamp() + (expiration_seconds * 1000)) catch false;
 
-    try client.writeInt(if (result) 1 else 0);
+    try resp.writeInt(writer, @intFromBool(result));
+}
+
+pub fn expireAt(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+    const key = args[1].asSlice();
+    const current_time = std.time.milliTimestamp();
+    const expiration_timestamp = args[2].asInt() catch {
+        return resp.writeInt(writer, 0);
+    };
+
+    const result = if (expiration_timestamp <= current_time)
+        store.delete(key)
+    else
+        store.expire(key, expiration_timestamp) catch false;
+
+    try resp.writeInt(writer, @intFromBool(result));
 }
 
 const testing = std.testing;

@@ -4,6 +4,7 @@ const store = @import("../store.zig");
 const ZedisValue = store.ZedisValue;
 const Value = @import("../parser.zig").Value;
 const Server = @import("../server.zig").Server;
+const resp = @import("../commands/resp.zig");
 
 pub const PubSubContext = struct {
     server: *Server,
@@ -43,6 +44,8 @@ pub const PubSubContext = struct {
 
 pub fn subscribe(client: *Client, args: []const Value) !void {
     var pubsub_context = client.pubsub_context;
+    var sw = client.connection.stream.writer(&.{});
+    const writer = &sw.interface;
 
     // Enter pubsub mode on first subscription
     if (!client.is_in_pubsub_mode) {
@@ -54,18 +57,18 @@ pub fn subscribe(client: *Client, args: []const Value) !void {
         const channel_name = item.asSlice();
         // Ensure channel exists
         pubsub_context.ensureChannelExists(channel_name) catch {
-            try client.writeError("ERR failed to create channel", .{});
+            try resp.writeError(writer, "ERR failed to create channel");
             continue;
         };
 
         // Subscribe client to channel
         pubsub_context.subscribeToChannel(channel_name, client.client_id) catch |err| switch (err) {
             error.ChannelFull => {
-                try client.writeError("ERR maximum subscribers per channel reached", .{});
+                try resp.writeError(writer, "ERR maximum subscribers per channel reached");
                 continue;
             },
             else => {
-                try client.writeError("ERR failed to subscribe to channel", .{});
+                try resp.writeError(writer, "ERR failed to subscribe to channel");
                 continue;
             },
         };
@@ -79,7 +82,7 @@ pub fn subscribe(client: *Client, args: []const Value) !void {
         };
 
         // Use a generic writer to send the tuple as a RESP array.
-        try client.writeTupleAsArray(response_tuple);
+        try resp.writeTupleAsArray(writer, response_tuple);
         i += 1;
     }
 }
@@ -89,6 +92,8 @@ pub fn publish(client: *Client, args: []const Value) !void {
     const channel_name = args[1].asSlice();
     const message = args[2].asSlice();
     var messages_sent: i64 = 0;
+    var sw = client.connection.stream.writer(&.{});
+    const writer = &sw.interface;
 
     // Get subscribers for this channel
     const subscribers = pubsub_context.getChannelSubscribers(channel_name);
@@ -103,8 +108,10 @@ pub fn publish(client: *Client, args: []const Value) !void {
                     message,
                 };
 
+                var sc_sw = subscriber_client.connection.stream.writer(&.{});
+                const sc_writer = &sc_sw.interface;
                 // Try to deliver the message, but don't fail the entire publish if one delivery fails
-                subscriber_client.writeTupleAsArray(message_tuple) catch |err| {
+                resp.writeTupleAsArray(sc_writer, message_tuple) catch |err| {
                     std.log.warn("Failed to deliver message to client {}: {s}", .{ subscriber_id, @errorName(err) });
                     continue;
                 };
@@ -114,7 +121,7 @@ pub fn publish(client: *Client, args: []const Value) !void {
         }
     }
 
-    try client.writeInt(messages_sent);
+    try resp.writeInt(writer, messages_sent);
 }
 
 // Test imports

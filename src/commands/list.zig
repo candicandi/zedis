@@ -3,35 +3,37 @@ const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
 const PrimitiveValue = @import("../store.zig").PrimitiveValue;
 const ZedisListNode = @import("../store.zig").ZedisListNode;
+const Store = @import("../store.zig").Store;
+const resp = @import("./resp.zig");
 
-pub fn lpush(client: *Client, args: []const Value) !void {
+pub fn lpush(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
-    const list = try client.store.getSetList(key);
+    const list = try store.getSetList(key);
 
     for (args[2..]) |arg| {
         try list.prepend(.{ .string = arg.asSlice() });
     }
 
-    try client.writeInt(@intCast(list.len()));
+    try resp.writeInt(writer, @intCast(list.len()));
 }
 
-pub fn rpush(client: *Client, args: []const Value) !void {
+pub fn rpush(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
-    const list = try client.store.getSetList(key);
+    const list = try store.getSetList(key);
 
     for (args[2..]) |arg| {
         try list.append(.{ .string = arg.asSlice() });
     }
 
-    try client.writeInt(@intCast(list.len()));
+    try resp.writeInt(writer, @intCast(list.len()));
 }
 
-pub fn lpop(client: *Client, args: []const Value) !void {
+pub fn lpop(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const list = try client.store.getList(key) orelse {
-        try client.writeNull();
+    const list = try store.getList(key) orelse {
+        try resp.writeNull(writer);
         return;
     };
 
@@ -45,29 +47,29 @@ pub fn lpop(client: *Client, args: []const Value) !void {
     const actual_count = @min(count, list_len);
 
     if (actual_count == 0) {
-        try client.writeNull();
+        try resp.writeNull(writer);
         return;
     }
 
     if (actual_count == 1) {
         const item = list.popFirst().?;
-        try client.writePrimitiveValue(item);
+        try resp.writePrimitiveValue(writer, item);
         return;
     }
     if (actual_count > 1) {
-        try client.writeListLen(actual_count);
+        try resp.writeListLen(writer, actual_count);
         for (0..actual_count) |_| {
             const item = list.popFirst().?;
-            try client.writePrimitiveValue(item);
+            try resp.writePrimitiveValue(writer, item);
         }
         return;
     }
 }
 
-pub fn rpop(client: *Client, args: []const Value) !void {
+pub fn rpop(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const list = try client.store.getList(key) orelse {
-        try client.writeNull();
+    const list = try store.getList(key) orelse {
+        try resp.writeNull(writer);
         return;
     };
 
@@ -81,79 +83,79 @@ pub fn rpop(client: *Client, args: []const Value) !void {
     const actual_count = @min(count, list_len);
 
     if (actual_count == 0) {
-        try client.writeNull();
+        try resp.writeNull(writer);
         return;
     }
 
     if (actual_count == 1) {
         const item = list.pop().?;
-        try client.writePrimitiveValue(item);
+        try resp.writePrimitiveValue(writer, item);
         return;
     }
     if (actual_count > 1) {
-        try client.writeListLen(actual_count);
+        try resp.writeListLen(writer, actual_count);
         for (0..actual_count) |_| {
             const item = list.pop().?;
-            try client.writePrimitiveValue(item);
+            try resp.writePrimitiveValue(writer, item);
         }
         return;
     }
 }
 
-pub fn llen(client: *Client, args: []const Value) !void {
+pub fn llen(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const list = try client.store.getList(key);
+    const list = try store.getList(key);
 
     if (list) |l| {
-        try client.writeInt(@intCast(l.len()));
+        try resp.writeInt(writer, @intCast(l.len()));
     } else {
-        try client.writeInt(0);
+        try resp.writeInt(writer, 0);
     }
 }
 
-pub fn lindex(client: *Client, args: []const Value) !void {
+pub fn lindex(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const index = try args[2].asInt();
-    const list = try client.store.getList(key) orelse {
-        try client.writeNull();
+    const list = try store.getList(key) orelse {
+        try resp.writeNull(writer);
         return;
     };
 
     const item = list.getByIndex(index) orelse {
-        try client.writeNull();
+        try resp.writeNull(writer);
         return;
     };
 
-    try client.writePrimitiveValue(item);
+    try resp.writePrimitiveValue(writer, item);
 }
 
-pub fn lset(client: *Client, args: []const Value) !void {
+pub fn lset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const index = try args[2].asInt();
     const value = args[3].asSlice();
 
-    const list = try client.store.getList(key) orelse {
-        return client.writeError("ERR no such key", .{});
+    const list = try store.getList(key) orelse {
+        return resp.writeError(writer, "ERR no such key");
     };
 
     try list.setByIndex(index, .{ .string = value });
 
-    try client.writeBulkString("OK");
+    try resp.writeBulkString(writer, "OK");
 }
 
-pub fn lrange(client: *Client, args: []const Value) !void {
+pub fn lrange(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const start = try args[2].asInt();
     const stop = try args[3].asInt();
 
-    const list = try client.store.getList(key) orelse {
-        try client.writeListLen(0);
+    const list = try store.getList(key) orelse {
+        try resp.writeListLen(writer, 0);
         return;
     };
 
     const list_len = list.len();
     if (list_len == 0) {
-        try client.writeListLen(0);
+        try resp.writeListLen(writer, 0);
         return;
     }
 
@@ -167,7 +169,7 @@ pub fn lrange(client: *Client, args: []const Value) !void {
     } else blk: {
         const pos_index = @as(usize, @intCast(start));
         if (pos_index >= list_len) {
-            try client.writeListLen(0);
+            try resp.writeListLen(writer, 0);
             return;
         }
         break :blk pos_index;
@@ -189,12 +191,12 @@ pub fn lrange(client: *Client, args: []const Value) !void {
 
     // Handle invalid range
     if (actual_start > actual_stop) {
-        try client.writeListLen(0);
+        try resp.writeListLen(writer, 0);
         return;
     }
 
     const count = actual_stop - actual_start + 1;
-    try client.writeListLen(count);
+    try resp.writeListLen(writer, count);
 
     // Stream items directly without intermediate allocation
     var current = list.list.first;
@@ -202,7 +204,7 @@ pub fn lrange(client: *Client, args: []const Value) !void {
     while (current) |node| : (i += 1) {
         if (i >= actual_start and i <= actual_stop) {
             const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-            try client.writePrimitiveValue(list_node.data);
+            try resp.writePrimitiveValue(writer, list_node.data);
         }
         if (i > actual_stop) break;
         current = node.next;

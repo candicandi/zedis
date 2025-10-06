@@ -2,4 +2,5 @@
 zig-out/
 *.o
 *.rdb
+*.aof
 .vscode

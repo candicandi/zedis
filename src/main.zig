@@ -11,7 +11,7 @@ pub fn main() !void {
 
     // Create and start the server.
     var redis_server = server.Server.init(allocator, host, port) catch |err| {
-        std.log.err("Error server init: {any}", .{@errorName(err)});
+        std.log.err("Error server init: {s}", .{@errorName(err)});
         return;
     };
     defer redis_server.deinit();

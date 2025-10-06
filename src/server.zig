@@ -13,6 +13,7 @@ const pubsub = @import("./pubsub/pubsub.zig");
 const PubSubContext = pubsub.PubSubContext;
 const server_config = @import("server_config.zig");
 const KeyValueAllocator = @import("kv_allocator.zig").KeyValueAllocator;
+const aof = @import("./aof/aof.zig");
 
 pub const Server = struct {
     // Configuration
@@ -44,6 +45,9 @@ pub const Server = struct {
     // Metadata
     redisVersion: ?[]u8 = undefined,
     createdTime: i64,
+
+    // AOF logging
+    aof_writer: aof.Writer,
 
     // Initializes the server with hybrid allocation strategy
     pub fn init(base_allocator: Allocator, host: []const u8, port: u16) !Server {
@@ -93,6 +97,9 @@ pub const Server = struct {
             // Metadata
             .redisVersion = undefined,
             .createdTime = time.timestamp(),
+
+            // AOF
+            .aof_writer = try aof.Writer.init(true),
         };
 
         if (config.requiresAuth()) {
@@ -103,17 +110,32 @@ pub const Server = struct {
 
         server.pubsub_context = PubSubContext.init(&server);
 
-        // Load RDB file if it exists
-        const file_exists = Reader.rdbFileExists();
-        if (file_exists) {
-            var reader = try Reader.init(server.temp_arena.allocator(), &server.store);
-            defer reader.deinit();
+        // Prefer AOF to RDB
+        // Load AOF file if it exists
+        // 'true' to be replaced with user option (use aof/rdb on boot)
+        if (true) {
+            std.log.info("Loading AOF", .{});
+            var aof_reader = aof.Reader.init(server.temp_arena.allocator(), &server.store, &server.registry) catch |err| {
+                std.log.err("Failed to load AOF: {s}", .{@errorName(err)});
+                return err;
+            };
+            aof_reader.read() catch |err| {
+                std.log.err("Failed to load AOF: {s}", .{@errorName(err)});
+                return err;
+            };
+        } else {
+            // Load RDB file if it exists
+            const file_exists = Reader.rdbFileExists();
+            if (file_exists) {
+                var reader = try Reader.init(server.temp_arena.allocator(), &server.store);
+                defer reader.deinit();
 
-            if (reader.readFile()) |data| {
-                std.log.debug("Loading RDB", .{});
-                server.createdTime = data.ctime;
-            } else |err| {
-                std.log.err("Failed to load rdb: {s}", .{@errorName(err)});
+                if (reader.readFile()) |data| {
+                    std.log.debug("Loading RDB", .{});
+                    server.createdTime = data.ctime;
+                } else |err| {
+                    std.log.err("Failed to load rdb: {s}", .{@errorName(err)});
+                }
             }
         }
 
@@ -150,6 +172,9 @@ pub const Server = struct {
         // Allocator cleanup
         self.kv_allocator.deinit();
         self.temp_arena.deinit();
+
+        // AOF Deinit
+        self.aof_writer.deinit();
 
         std.log.info("Server deinitialized - all memory freed", .{});
     }
