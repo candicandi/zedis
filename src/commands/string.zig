@@ -6,18 +6,6 @@ const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
 const resp = @import("./resp.zig");
 
-pub const StringCommandError = error{
-    WrongType,
-    ValueNotInteger,
-};
-
-fn getErrorMessage(err: StringCommandError) []const u8 {
-    return switch (err) {
-        StringCommandError.WrongType => "WRONGTYPE Operation against a key holding the wrong kind of value",
-        StringCommandError.ValueNotInteger => "ERR value is not an integer or out of range",
-    };
-}
-
 pub fn set(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = args[2].asSlice();
@@ -47,34 +35,14 @@ pub fn get(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
 
 pub fn incr(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const new_value = incrDecr(store, key, 1) catch |err| switch (err) {
-        StringCommandError.WrongType => {
-            try resp.writeError(writer, getErrorMessage(StringCommandError.WrongType));
-            return;
-        },
-        StringCommandError.ValueNotInteger => {
-            try resp.writeError(writer, getErrorMessage(StringCommandError.ValueNotInteger));
-            return;
-        },
-        else => return err,
-    };
+    const new_value = try incrDecr(store, key, 1);
 
     try resp.writeIntBulkString(writer, new_value);
 }
 
 pub fn decr(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const new_value = incrDecr(store, key, -1) catch |err| switch (err) {
-        StringCommandError.WrongType => {
-            try resp.writeError(writer, getErrorMessage(StringCommandError.WrongType));
-            return;
-        },
-        StringCommandError.ValueNotInteger => {
-            try resp.writeError(writer, getErrorMessage(StringCommandError.ValueNotInteger));
-            return;
-        },
-        else => return err,
-    };
+    const new_value = try incrDecr(store, key, -1);
 
     try resp.writeIntBulkString(writer, new_value);
 }
@@ -87,18 +55,18 @@ fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
         switch (v.value) {
             .string => |_| {
                 const intValue = std.fmt.parseInt(i64, v.value.string, 10) catch {
-                    return StringCommandError.ValueNotInteger;
+                    return error.ValueNotInteger;
                 };
                 new_value = std.math.add(i64, intValue, value) catch {
-                    return StringCommandError.ValueNotInteger;
+                    return error.ValueNotInteger;
                 };
             },
             .int => |_| {
                 new_value = std.math.add(i64, v.value.int, value) catch {
-                    return StringCommandError.ValueNotInteger;
+                    return error.ValueNotInteger;
                 };
             },
-            else => return StringCommandError.WrongType,
+            else => return error.WrongType,
         }
 
         const int_object = ZedisObject{ .value = .{ .int = new_value } };
@@ -108,7 +76,7 @@ fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
     } else {
         // Redis behavior: non-existent key is treated as 0, then the operation is applied
         const new_value = std.math.add(i64, 0, value) catch {
-            return StringCommandError.ValueNotInteger;
+            return error.ValueNotInteger;
         };
         try store_ptr.setInt(key, new_value);
         return new_value;
@@ -186,7 +154,7 @@ test "incrDecr helper function with integer overflow" {
     try store.setInt("key1", std.math.maxInt(i64));
 
     const result = incrDecr(&store, "key1", 1);
-    try testing.expectError(StringCommandError.ValueNotInteger, result);
+    try testing.expectError(error.ValueNotInteger, result);
 }
 
 test "incrDecr helper function with non-existent key" {
