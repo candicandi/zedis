@@ -1,6 +1,9 @@
 const std = @import("std");
 const SafeMemoryPool = @import("./safe_memory_pool.zig");
 const simd = @import("./simd.zig");
+const PrimitiveValue = @import("types.zig").PrimitiveValue;
+const ZedisList = @import("list.zig").ZedisList;
+const ZedisListNode = @import("list.zig").ZedisListNode;
 
 // Optimal load factor
 const optimal_max_load_percentage = 75;
@@ -34,163 +37,6 @@ pub const StoreError = error{
     KeyAlreadyExists,
 };
 
-pub const PrimitiveValue = union(enum) {
-    string: []const u8,
-    int: i64,
-};
-
-pub const ZedisListNode = struct {
-    data: PrimitiveValue,
-    node: std.DoublyLinkedList.Node = .{},
-};
-
-pub const ZedisList = struct {
-    list: std.DoublyLinkedList = .{},
-    allocator: std.mem.Allocator,
-    cached_len: usize = 0,
-
-    pub fn init(allocator: std.mem.Allocator) ZedisList {
-        return .{
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *ZedisList) void {
-        var current = self.list.first;
-        while (current) |node| {
-            current = node.next;
-            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-            self.allocator.destroy(list_node);
-        }
-        self.list = .{};
-    }
-
-    pub inline fn len(self: *const ZedisList) usize {
-        return self.cached_len;
-    }
-
-    pub fn prepend(self: *ZedisList, value: PrimitiveValue) !void {
-        const list_node = try self.allocator.create(ZedisListNode);
-        list_node.* = ZedisListNode{ .data = value };
-        self.list.prepend(&list_node.node);
-        self.cached_len += 1;
-    }
-
-    pub fn append(self: *ZedisList, value: PrimitiveValue) !void {
-        const list_node = try self.allocator.create(ZedisListNode);
-        list_node.* = ZedisListNode{ .data = value };
-        self.list.append(&list_node.node);
-        self.cached_len += 1;
-    }
-
-    pub fn popFirst(self: *ZedisList) ?PrimitiveValue {
-        const node = self.list.popFirst() orelse return null;
-        const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-        const value = list_node.data;
-        self.allocator.destroy(list_node);
-        self.cached_len -= 1;
-        return value;
-    }
-
-    pub fn pop(self: *ZedisList) ?PrimitiveValue {
-        const node = self.list.pop() orelse return null;
-        const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-        const value = list_node.data;
-        self.allocator.destroy(list_node);
-        self.cached_len -= 1;
-        return value;
-    }
-
-    pub fn getByIndex(self: *const ZedisList, index: i64) ?PrimitiveValue {
-        const list_len = self.cached_len;
-        if (list_len == 0) return null;
-
-        // Convert negative index to positive
-        const actual_index: usize = if (index < 0) blk: {
-            const neg_offset = @as(usize, @intCast(-index));
-            if (neg_offset > list_len) return null;
-            break :blk list_len - neg_offset;
-        } else blk: {
-            const pos_index = @as(usize, @intCast(index));
-            if (pos_index >= list_len) return null;
-            break :blk pos_index;
-        };
-
-        // O(1) optimization for first index
-        if (actual_index == 0) {
-            const node = self.list.first orelse return null;
-            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-            return list_node.data;
-        }
-
-        // O(1) optimization for last index
-        if (actual_index == list_len - 1) {
-            const node = self.list.last orelse return null;
-            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-            return list_node.data;
-        }
-
-        // O(n) traversal for middle indices
-        var current = self.list.first;
-        var i: usize = 0;
-        while (current) |node| {
-            if (i == actual_index) {
-                const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-                return list_node.data;
-            }
-            current = node.next;
-            i += 1;
-        }
-        return null;
-    }
-
-    pub fn setByIndex(self: *ZedisList, index: i64, value: PrimitiveValue) !void {
-        const list_len = self.cached_len;
-        if (list_len == 0) return StoreError.KeyNotFound;
-
-        // Convert negative index to positive
-        const actual_index: usize = if (index < 0) blk: {
-            const neg_offset = @as(usize, @intCast(-index));
-            if (neg_offset > list_len) return StoreError.KeyNotFound;
-            break :blk list_len - neg_offset;
-        } else blk: {
-            const pos_index = @as(usize, @intCast(index));
-            if (pos_index >= list_len) return StoreError.KeyNotFound;
-            break :blk pos_index;
-        };
-
-        // O(1) optimization for first index
-        if (actual_index == 0) {
-            const node = self.list.first orelse return StoreError.KeyNotFound;
-            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-            list_node.data = value;
-            return;
-        }
-
-        // O(1) optimization for last index
-        if (actual_index == list_len - 1) {
-            const node = self.list.last orelse return StoreError.KeyNotFound;
-            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-            list_node.data = value;
-            return;
-        }
-
-        // O(n) traversal for middle indices
-        var current = self.list.first;
-        var i: usize = 0;
-        while (current) |node| {
-            if (i == actual_index) {
-                const list_node: *ZedisListNode = @fieldParentPtr("node", node);
-                list_node.data = value;
-                return;
-            }
-            current = node.next;
-            i += 1;
-        }
-        return StoreError.KeyNotFound;
-    }
-};
-
 pub const ShortString = struct {
     data: [23]u8, // Inline storage - increased from 15 to 23 bytes
     len: u8, // Actual length
@@ -217,6 +63,7 @@ pub const ZedisValue = union(ValueType) {
 
 pub const ZedisObject = struct {
     value: ZedisValue,
+    last_access: u64 = 0,
 };
 
 const StringContext = struct {
@@ -302,6 +149,8 @@ pub const Store = struct {
     pool_hits: std.atomic.Value(u64),
     pool_misses: std.atomic.Value(u64),
 
+    access_counter: std.atomic.Value(u64),
+
     /// Check if we need to resize to maintain optimal load factor
     inline fn maybeResize(self: *Store) !void {
         const current_load = (self.map.count() * 100) / self.map.capacity();
@@ -328,6 +177,7 @@ pub const Store = struct {
             .large_pool = SafeMemoryPool.init(allocator, LARGE_STRING_SIZE),
             .pool_hits = std.atomic.Value(u64).init(0),
             .pool_misses = std.atomic.Value(u64).init(0),
+            .access_counter = std.atomic.Value(u64).init(0),
         };
     }
 
@@ -524,7 +374,11 @@ pub const Store = struct {
             _ = self.delete(key);
             return null;
         }
-        return self.map.getPtr(key);
+        if (self.map.getPtr(key)) |obj| {
+            obj.last_access = self.access_counter.fetchAdd(1, .monotonic);
+            return obj;
+        }
+        return null;
     }
 
     pub fn getList(self: Store, key: []const u8) !?*ZedisList {
@@ -595,6 +449,65 @@ pub const Store = struct {
     pub fn resetPoolStats(self: *Store) void {
         self.pool_hits.store(0, .release);
         self.pool_misses.store(0, .release);
+    }
+
+    /// Sample random keys and return the least recently used one (approximate LRU)
+    /// If volatile_only is true, only samples keys with expiration set (volatile-lru policy)
+    pub fn sampleLRUKey(self: *Store, sample_size: usize, volatile_only: bool) ?[]const u8 {
+        // Check appropriate map based on policy
+        const total_keys = if (volatile_only) self.expiration_map.count() else self.map.count();
+        if (total_keys == 0) return null;
+
+        var oldest_key: ?[]const u8 = null;
+        var oldest_access: u64 = std.math.maxInt(u64);
+
+        // Use a simple PRNG for sampling
+        var prng = std.Random.DefaultPrng.init(@intCast(std.time.milliTimestamp()));
+        const random = prng.random();
+
+        // Sample up to sample_size random keys
+        var samples_taken: usize = 0;
+        while (samples_taken < sample_size and samples_taken < total_keys) : (samples_taken += 1) {
+            // Get random index
+            const random_idx = random.intRangeLessThan(usize, 0, total_keys);
+
+            if (volatile_only) {
+                // Sample from keys with expiration
+                var it = self.expiration_map.iterator();
+                var current_idx: usize = 0;
+                while (it.next()) |entry| {
+                    if (current_idx == random_idx) {
+                        const key = entry.key_ptr.*;
+                        // Get the object to check its access time
+                        if (self.map.getPtr(key)) |obj| {
+                            if (obj.last_access < oldest_access) {
+                                oldest_access = obj.last_access;
+                                oldest_key = key;
+                            }
+                        }
+                        break;
+                    }
+                    current_idx += 1;
+                }
+            } else {
+                // Sample from all keys
+                var it = self.map.iterator();
+                var current_idx: usize = 0;
+                while (it.next()) |entry| {
+                    if (current_idx == random_idx) {
+                        const obj = entry.value_ptr;
+                        if (obj.last_access < oldest_access) {
+                            oldest_access = obj.last_access;
+                            oldest_key = entry.key_ptr.*;
+                        }
+                        break;
+                    }
+                    current_idx += 1;
+                }
+            }
+        }
+
+        return oldest_key;
     }
 };
 

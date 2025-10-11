@@ -69,6 +69,10 @@ pub const Server = struct {
             db.* = Store.init(kv_allocator.allocator());
         }
 
+        // Link KV allocator to database 0 for LRU eviction
+        // (All databases share the same KV allocator, so eviction affects all)
+        kv_allocator.setStore(&databases[0]);
+
         // Initialize temp arena for temporary allocations
         const temp_arena = std.heap.ArenaAllocator.init(base_allocator);
 

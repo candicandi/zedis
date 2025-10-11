@@ -5,7 +5,8 @@ const ZedisObject = storeModule.ZedisObject;
 const Store = storeModule.Store;
 const ZedisValue = storeModule.ZedisValue;
 const ValueType = storeModule.ValueType;
-const ZedisList = storeModule.ZedisList;
+const ZedisList = @import("../list.zig").ZedisList;
+const ZedisListNode = @import("../list.zig").ZedisListNode;
 const fs = std.fs;
 const eql = std.mem.eql;
 
@@ -180,7 +181,7 @@ pub const Writer = struct {
 
         var current = list.list.first;
         while (current) |node| {
-            const list_node: *storeModule.ZedisListNode = @fieldParentPtr("node", node);
+            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
             const value = list_node.data;
 
             switch (value) {

@@ -2,7 +2,7 @@ const std = @import("std");
 const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
 const PrimitiveValue = @import("../store.zig").PrimitiveValue;
-const ZedisListNode = @import("../store.zig").ZedisListNode;
+const ZedisListNode = @import("../list.zig").ZedisListNode;
 const Store = @import("../store.zig").Store;
 const resp = @import("./resp.zig");
 

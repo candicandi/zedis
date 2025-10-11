@@ -12,3 +12,8 @@ pub const ConnectionContext = struct {
     server: *Server,
     connection: std.net.Server.Connection,
 };
+
+pub const PrimitiveValue = union(enum) {
+    string: []const u8,
+    int: i64,
+};

@@ -5,7 +5,7 @@ const ZedisObject = storeModule.ZedisObject;
 const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
 const ZedisValue = storeModule.ZedisValue;
-const PrimitiveValue = storeModule.PrimitiveValue;
+const PrimitiveValue = @import("../types.zig").PrimitiveValue;
 
 // --- RESP Writing Helpers ---
 

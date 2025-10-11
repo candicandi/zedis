@@ -1,5 +1,6 @@
 const std = @import("std");
 const server_config = @import("server_config.zig");
+const Store = @import("store.zig").Store;
 
 pub const KeyValueAllocator = struct {
     base_allocator: std.mem.Allocator,
@@ -9,8 +10,8 @@ pub const KeyValueAllocator = struct {
     memory_budget: usize,
     eviction_policy: server_config.ServerConfig.EvictionPolicy,
 
-    // LRU tracking
-    access_counter: std.atomic.Value(u64),
+    // Reference to store for eviction (set after init)
+    store: ?*Store = null,
 
     const Self = @This();
 
@@ -24,8 +25,12 @@ pub const KeyValueAllocator = struct {
             .memory_used = std.atomic.Value(usize).init(0),
             .memory_budget = budget,
             .eviction_policy = eviction_policy,
-            .access_counter = std.atomic.Value(u64).init(0),
+            .store = null,
         };
+    }
+
+    pub fn setStore(self: *Self, store: *Store) void {
+        self.store = store;
     }
 
     pub fn deinit(self: *Self) void {
@@ -54,7 +59,7 @@ pub const KeyValueAllocator = struct {
         }
 
         // If allocation failed and we have eviction policy, try to make space
-        if (self.eviction_policy != .noeviction) {
+        if (self.eviction_policy != .noeviction and self.store != null) {
             self.evictMemory(len);
             // Try allocation again after eviction
             if (self.pool_allocator.allocator().rawAlloc(len, ptr_align, ret_addr)) |ptr| {
@@ -89,25 +94,36 @@ pub const KeyValueAllocator = struct {
     }
 
     fn evictMemory(self: *Self, needed_bytes: usize) void {
-        // Simple eviction strategy: reset the entire pool
-        // In a real implementation, you'd implement proper LRU eviction
-        // by tracking individual allocations and their access times
+        const store = self.store orelse return;
 
         switch (self.eviction_policy) {
             .noeviction => return,
-            .allkeys_lru, .volatile_lru => {
-                // For now, just reset the pool if we need space
-                // This is a simplified implementation
-                const current_used = self.memory_used.load(.acquire);
-                if (current_used + needed_bytes > self.memory_budget) {
-                    self.pool_allocator.reset();
-                    self.memory_used.store(0, .release);
-                    std.log.warn("KV allocator: Evicted all keys due to memory pressure", .{});
+
+            .allkeys_lru => {
+                // Evict using approximate LRU until we have space
+                while (self.memory_used.load(.acquire) + needed_bytes > self.memory_budget) {
+                    // Sample 5 random keys (Redis default) from all keys
+                    const victim_key = store.sampleLRUKey(5, false) orelse break;
+
+                    // Delete the key
+                    if (!store.delete(victim_key)) break;
+
+                    std.log.debug("Evicted key via allkeys-lru: {s}", .{victim_key});
+                }
+            },
+
+            .volatile_lru => {
+                // Only evict keys with expiration set
+                while (self.memory_used.load(.acquire) + needed_bytes > self.memory_budget) {
+                    // Sample 5 random keys (Redis default) from volatile keys only
+                    const victim_key = store.sampleLRUKey(5, true) orelse break;
+                    if (!store.delete(victim_key)) break;
+
+                    std.log.debug("Evicted key via volatile-lru: {s}", .{victim_key});
                 }
             },
         }
     }
-
     pub fn getMemoryUsage(self: *Self) usize {
         return self.memory_used.load(.acquire);
     }
