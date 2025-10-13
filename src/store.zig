@@ -6,6 +6,7 @@ const ZedisList = @import("list.zig").ZedisList;
 const ZedisListNode = @import("list.zig").ZedisListNode;
 const ts_module = @import("time_series.zig");
 const TimeSeries = ts_module.TimeSeries;
+const CityHash64 = std.hash.CityHash64;
 
 const assert = std.debug.assert;
 
@@ -68,10 +69,8 @@ pub const ZedisObject = struct {
 
 const StringContext = struct {
     pub fn hash(self: @This(), s: []const u8) u32 {
-        assert(s.len > 0);
         _ = self;
-        // Redis-optimized hash function for typical key patterns
-        return redisOptimizedHash(s);
+        return @truncate(CityHash64.hash(s));
     }
 
     pub fn eql(self: @This(), a: []const u8, b: []const u8, b_index: usize) bool {
@@ -85,45 +84,6 @@ const StringContext = struct {
         return simd.simdStringEql(a, b);
     }
 };
-
-/// Redis-optimized hash function for common key patterns
-fn redisOptimizedHash(s: []const u8) u32 {
-    if (s.len == 0) return 0;
-
-    // Fast path for very short keys
-    if (s.len <= 4) {
-        var hash: u32 = 0;
-        for (s, 0..) |byte, i| {
-            hash |= @as(u32, byte) << @intCast(i * 8);
-        }
-        return hash;
-    }
-
-    // Optimized for Redis key patterns:
-    // - "user:123", "session:abc", "cache:key:value"
-    // - Often have colons as separators
-    // - Numbers are common
-    var hash: u64 = 0xcbf29ce484222325; // FNV-1a offset basis
-    const prime: u64 = 0x00000100000001b3; // FNV-1a prime
-
-    // Process 8 bytes at a time for better performance
-    var i: usize = 0;
-    while (i + 8 <= s.len) {
-        const chunk = std.mem.readInt(u64, s[i..][0..8], .little);
-        hash ^= chunk;
-        hash *%= prime;
-        i += 8;
-    }
-
-    // Handle remaining bytes
-    while (i < s.len) {
-        hash ^= s[i];
-        hash *%= prime;
-        i += 1;
-    }
-
-    return @truncate(hash);
-}
 
 pub const Store = struct {
     base_allocator: std.mem.Allocator,
@@ -292,7 +252,14 @@ pub const Store = struct {
     }
 
     pub fn set(self: *Store, key: []const u8, value: []const u8) !void {
-        assert(value.len > 0);
+        // Handle empty string as a valid value (Redis allows this)
+        if (value.len == 0) {
+            const zedis_value: ZedisValue = .{ .short_string = ShortString.fromSlice(value) };
+            const zedis_object = ZedisObject{ .value = zedis_value };
+            try self.putObject(key, zedis_object);
+            return;
+        }
+
         // Try to parse as integer for automatic type optimization
         if (std.fmt.parseInt(i64, value, 10)) |int_value| {
             try self.putObject(key, .{ .value = .{ .int = int_value } });
