@@ -5,7 +5,7 @@ const connection_commands = @import("connection.zig");
 const string = @import("string.zig");
 const list = @import("list.zig");
 const rdb = @import("../commands/rdb.zig");
-const pubsub = @import("../pubsub/pubsub.zig");
+const pubsub = @import("../commands/pubsub.zig");
 const ts = @import("../commands/time_series.zig");
 
 pub fn initRegistry(allocator: Allocator) !CommandRegistry {

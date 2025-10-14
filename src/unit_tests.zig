@@ -13,7 +13,7 @@ comptime {
     _ = @import("testing/time_series.zig");
 
     // Pub/Sub tests
-    _ = @import("pubsub/pubsub.zig");
+    _ = @import("commands/pubsub.zig");
 
     // RDB tests - checksum utility
     _ = @import("rdb/checksum.zig");

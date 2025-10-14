@@ -12,7 +12,7 @@ const PrimitiveValue = store_mod.PrimitiveValue;
 const Command = @import("parser.zig").Command;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const Server = @import("./server.zig").Server;
-const PubSubContext = @import("./pubsub/pubsub.zig").PubSubContext;
+const PubSubContext = @import("./commands/pubsub.zig").PubSubContext;
 const ServerConfig = @import("./server_config.zig").ServerConfig;
 const resp = @import("./commands/resp.zig");
 
