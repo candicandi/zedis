@@ -5,8 +5,8 @@ const time = std.time;
 const Store = @import("./store.zig").Store;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const server_config = @import("./server_config.zig");
-const KeyValueAllocator = @import("./kv_allocator.zig").KeyValueAllocator;
-const Server = @import("./server.zig").Server;
+const KeyValueAllocator = @import("./kv_allocator.zig");
+const Server = @import("./server.zig");
 
 pub const ConnectionContext = struct {
     server: *Server,

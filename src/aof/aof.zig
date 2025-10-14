@@ -1,5 +1,5 @@
 const std = @import("std");
-const Server = @import("../server.zig").Server;
+const Server = @import("../server.zig");
 const Parser = @import("../parser.zig").Parser;
 const Command = @import("../parser.zig").Command;
 const Registry = @import("../commands/registry.zig").CommandRegistry;

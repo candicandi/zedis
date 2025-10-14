@@ -1,5 +1,5 @@
 const std = @import("std");
-const server = @import("server.zig");
+const Server = @import("server.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -10,7 +10,7 @@ pub fn main() !void {
     const port = 6379;
 
     // Create and start the server.
-    var redis_server = server.Server.init(allocator, host, port) catch |err| {
+    var redis_server = Server.init(allocator, host, port) catch |err| {
         std.log.err("Error server init: {s}", .{@errorName(err)});
         return;
     };

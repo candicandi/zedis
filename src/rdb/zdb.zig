@@ -1,5 +1,4 @@
 const std = @import("std");
-const CRC64 = @import("./checksum.zig").CRC64;
 const storeModule = @import("../store.zig");
 const ZedisObject = storeModule.ZedisObject;
 const Store = storeModule.Store;
@@ -99,7 +98,7 @@ pub const Writer = struct {
         try self.writer.interface.writeByte(OPCODE_EOF);
         // TODO Fix this
         const file_content = self.writer.interface.buffered();
-        const checksum = CRC64.checksum(file_content);
+        const checksum = std.hash.crc.Crc64Redis.hash(file_content);
 
         try self.writer.interface.writeInt(u64, checksum, .little);
     }

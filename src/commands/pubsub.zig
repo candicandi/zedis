@@ -3,7 +3,7 @@ const Client = @import("../client.zig").Client;
 const store = @import("../store.zig");
 const ZedisValue = store.ZedisValue;
 const Value = @import("../parser.zig").Value;
-const Server = @import("../server.zig").Server;
+const Server = @import("../server.zig");
 const resp = @import("../commands/resp.zig");
 
 pub const PubSubContext = struct {
