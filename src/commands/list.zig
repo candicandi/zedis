@@ -115,7 +115,7 @@ pub fn llen(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
 
 pub fn lindex(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const index = try args[2].asInt();
+    const index = try args[2].asUsize();
     const list = try store.getList(key) orelse {
         try resp.writeNull(writer);
         return;
@@ -131,7 +131,7 @@ pub fn lindex(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
 
 pub fn lset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
-    const index = try args[2].asInt();
+    const index = try args[2].asUsize();
     const value = args[3].asSlice();
 
     const list = try store.getList(key) orelse {
