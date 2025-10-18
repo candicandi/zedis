@@ -13,6 +13,7 @@ comptime {
     _ = @import("testing/time_series.zig");
     _ = @import("testing/keys.zig");
     _ = @import("util/string_match.zig");
+    _ = @import("compression/gorilla.zig");
 
     // Pub/Sub tests
     _ = @import("commands/pubsub.zig");
