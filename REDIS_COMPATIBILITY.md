@@ -42,13 +42,13 @@ This document outlines the compatibility of Zedis with Redis commands. The table
 
 | Command   | Supported | Notes                               |
 | --------- | --------- | ----------------------------------- |
-| EXISTS    | No        | Check if key exists                 |
-| KEYS      | No        | Find all keys matching a pattern    |
-| TTL       | No        | Get remaining time to live of a key |
-| PERSIST   | No        | Remove expiration from a key        |
-| TYPE      | No        | Get the data type of a key          |
-| RENAME    | No        | Rename a key                        |
-| RANDOMKEY | No        | Return a random key                 |
+| EXISTS    | Yes       | Check if key exists                 |
+| KEYS      | Yes       | Find all keys matching a pattern    |
+| TTL       | Yes       | Get remaining time to live of a key |
+| PERSIST   | Yes       | Remove expiration from a key        |
+| TYPE      | Yes       | Get the data type of a key          |
+| RENAME    | Yes       | Rename a key                        |
+| RANDOMKEY | Yes       | Return a random key                 |
 
 ## List Commands
 
@@ -142,18 +142,18 @@ This document outlines the compatibility of Zedis with Redis commands. The table
 
 ## Server Commands
 
-| Command    | Supported | Notes                                      |
-| ---------- | --------- | ------------------------------------------ |
-| SAVE       | Yes       | Synchronously save dataset to RDB file     |
-| BGSAVE     | No        | Asynchronously save dataset to RDB file    |
-| FLUSHDB    | No        | Clear current database                     |
-| FLUSHALL   | No        | Clear all databases                        |
-| INFO       | No        | Get server information                     |
-| CONFIG GET | No        | Get configuration parameters               |
-| CONFIG SET | No        | Set configuration parameters               |
-| DBSIZE     | No        | Get number of keys in database             |
-| LASTSAVE   | No        | Get Unix timestamp of last save            |
-| MONITOR    | No        | Listen for all requests received by server |
+| Command    | Supported | Notes                                                     |
+| ---------- | --------- | --------------------------------------------------------- |
+| SAVE       | Yes       | Synchronously save dataset to RDB file                    |
+| BGSAVE     | No        | Asynchronously save dataset to RDB file                   |
+| FLUSHDB    | Yes       | Clear current database (synchronous only, no ASYNC mode)  |
+| FLUSHALL   | Yes       | Clear all databases (synchronous only, no ASYNC mode)     |
+| INFO       | No        | Get server information                                    |
+| CONFIG GET | No        | Get configuration parameters                              |
+| CONFIG SET | No        | Set configuration parameters                              |
+| DBSIZE     | Yes       | Get number of keys in database                            |
+| LASTSAVE   | No        | Get Unix timestamp of last save                           |
+| MONITOR    | No        | Listen for all requests received by server                |
 
 ## Redis Modules
 
@@ -167,14 +167,14 @@ Redis modules extend Redis functionality with custom data types and commands. Ze
 | TS.ADD        | Yes       | Add a sample to a time series with full duplicate policy and IGNORE filtering support                           |
 | TS.MADD       | No        | Add multiple samples to multiple time series                                                                    |
 | TS.GET        | Yes       | Get the latest sample from a time series (supports LATEST flag)                                                 |
-| TS.MGET       | No        | Get the latest samples from multiple time series                                                                |
+| TS.MGET       | Yes       | Get the latest samples from multiple time series                                                                |
 | TS.RANGE      | No        | Get samples in a time range from a time series                                                                  |
 | TS.MRANGE     | No        | Get samples in a time range from multiple time series                                                           |
-| TS.INCRBY     | No        | Increment the latest sample by a value                                                                          |
-| TS.DECRBY     | No        | Decrement the latest sample by a value                                                                          |
+| TS.INCRBY     | Yes       | Increment the latest sample by a value                                                                          |
+| TS.DECRBY     | Yes       | Decrement the latest sample by a value                                                                          |
 | TS.CREATERULE | No        | Create a downsampling rule                                                                                      |
 | TS.DELETERULE | No        | Delete a downsampling rule                                                                                      |
-| TS.ALTER      | No        | Alter the configuration of a time series                                                                        |
+| TS.ALTER      | Yes       | Alter the configuration of a time series                                                                        |
 
 ### Popular Redis Modules
 
