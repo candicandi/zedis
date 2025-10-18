@@ -451,3 +451,409 @@ test "TimeSeries: all chunks evicted clears head and tail" {
     try testing.expect(ts.head == ts.tail);
     try testing.expectEqual(@as(i64, 10000), ts.head.?.first_ts);
 }
+
+test "TimeSeries: getLastValue returns last value" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        10,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Empty time series should return 0.0
+    try testing.expectEqual(@as(f64, 0.0), ts.getLastValue());
+
+    // Add samples
+    try ts.addSample(1000, 10.0);
+    try testing.expectEqual(@as(f64, 10.0), ts.getLastValue());
+
+    try ts.addSample(2000, 20.5);
+    try testing.expectEqual(@as(f64, 20.5), ts.getLastValue());
+}
+
+test "TimeSeries: alter updates properties" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        1000,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Alter retention
+    ts.alter(5000, null, null);
+    try testing.expectEqual(@as(u64, 5000), ts.retention_ms);
+
+    // Alter duplicate policy
+    ts.alter(null, .LAST, null);
+    try testing.expectEqual(Duplicate_Policy.LAST, ts.duplicate_policy);
+
+    // Alter chunk size
+    ts.alter(null, null, 200);
+    try testing.expectEqual(@as(u16, 200), ts.max_chunk_samples);
+
+    // Alter multiple at once
+    ts.alter(10000, .MIN, 50);
+    try testing.expectEqual(@as(u64, 10000), ts.retention_ms);
+    try testing.expectEqual(Duplicate_Policy.MIN, ts.duplicate_policy);
+    try testing.expectEqual(@as(u16, 50), ts.max_chunk_samples);
+}
+
+// Command-level tests
+const Store = @import("../store.zig").Store;
+const Value = @import("../parser.zig").Value;
+const ts_commands = @import("../commands/time_series.zig");
+
+test "TS.INCRBY increments from zero" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create time series
+    const create_args = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "myts" },
+        .{ .data = "RETENTION" },
+        .{ .data = "0" },
+        .{ .data = "ENCODING" },
+        .{ .data = "UNCOMPRESSED" },
+        .{ .data = "DUPLICATE_POLICY" },
+        .{ .data = "LAST" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args);
+
+    // Increment by 5.0 (should start from 0.0)
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const incrby_args = [_]Value{
+        .{ .data = "TS.INCRBY" },
+        .{ .data = "myts" },
+        .{ .data = "1000" },
+        .{ .data = "5.0" },
+    };
+    try ts_commands.ts_incrby(&writer, &store, &incrby_args);
+
+    // Should return timestamp
+    try testing.expectEqualStrings(":1000\r\n", writer.buffered());
+
+    // Verify value is 5.0 (formatted as "5" in RESP)
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const get_args = [_]Value{
+        .{ .data = "TS.GET" },
+        .{ .data = "myts" },
+    };
+    try ts_commands.ts_get(&writer, &store, &get_args);
+
+    const output = writer.buffered();
+    try testing.expect(std.mem.indexOf(u8, output, "$1\r\n5\r\n") != null or std.mem.indexOf(u8, output, "$3\r\n5.0\r\n") != null);
+}
+
+test "TS.INCRBY increments from existing value" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create and add initial value
+    const create_args = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "myts" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args);
+
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const add_args = [_]Value{
+        .{ .data = "TS.ADD" },
+        .{ .data = "myts" },
+        .{ .data = "1000" },
+        .{ .data = "10.0" },
+    };
+    try ts_commands.ts_add(&writer, &store, &add_args);
+
+    // Increment by 3.0
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const incrby_args = [_]Value{
+        .{ .data = "TS.INCRBY" },
+        .{ .data = "myts" },
+        .{ .data = "2000" },
+        .{ .data = "3.0" },
+    };
+    try ts_commands.ts_incrby(&writer, &store, &incrby_args);
+
+    // Verify value is 13.0 (formatted as "13" in RESP)
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const get_args = [_]Value{
+        .{ .data = "TS.GET" },
+        .{ .data = "myts" },
+    };
+    try ts_commands.ts_get(&writer, &store, &get_args);
+
+    const output = writer.buffered();
+    try testing.expect(std.mem.indexOf(u8, output, "$2\r\n13\r\n") != null or std.mem.indexOf(u8, output, "$4\r\n13.0\r\n") != null);
+}
+
+test "TS.DECRBY decrements value" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create and add initial value
+    const create_args = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "myts" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args);
+
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const add_args = [_]Value{
+        .{ .data = "TS.ADD" },
+        .{ .data = "myts" },
+        .{ .data = "1000" },
+        .{ .data = "20.0" },
+    };
+    try ts_commands.ts_add(&writer, &store, &add_args);
+
+    // Decrement by 7.0
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const decrby_args = [_]Value{
+        .{ .data = "TS.DECRBY" },
+        .{ .data = "myts" },
+        .{ .data = "2000" },
+        .{ .data = "7.0" },
+    };
+    try ts_commands.ts_decrby(&writer, &store, &decrby_args);
+
+    // Verify value is 13.0 (formatted as "13" in RESP)
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const get_args = [_]Value{
+        .{ .data = "TS.GET" },
+        .{ .data = "myts" },
+    };
+    try ts_commands.ts_get(&writer, &store, &get_args);
+
+    const output = writer.buffered();
+    try testing.expect(std.mem.indexOf(u8, output, "$2\r\n13\r\n") != null or std.mem.indexOf(u8, output, "$4\r\n13.0\r\n") != null);
+}
+
+test "TS.ALTER changes retention" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create with retention 1000
+    const create_args = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "myts" },
+        .{ .data = "RETENTION" },
+        .{ .data = "1000" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args);
+
+    // Alter retention to 5000
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const alter_args = [_]Value{
+        .{ .data = "TS.ALTER" },
+        .{ .data = "myts" },
+        .{ .data = "RETENTION" },
+        .{ .data = "5000" },
+    };
+    try ts_commands.ts_alter(&writer, &store, &alter_args);
+
+    try testing.expectEqualStrings("+OK\r\n", writer.buffered());
+
+    // Verify the retention was changed
+    const ts = try store.getTimeSeries("myts");
+    try testing.expectEqual(@as(u64, 5000), ts.?.retention_ms);
+}
+
+test "TS.ALTER changes duplicate policy" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create with BLOCK policy
+    const create_args = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "myts" },
+        .{ .data = "DUPLICATE_POLICY" },
+        .{ .data = "BLOCK" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args);
+
+    // Alter to LAST policy
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const alter_args = [_]Value{
+        .{ .data = "TS.ALTER" },
+        .{ .data = "myts" },
+        .{ .data = "DUPLICATE_POLICY" },
+        .{ .data = "LAST" },
+    };
+    try ts_commands.ts_alter(&writer, &store, &alter_args);
+
+    try testing.expectEqualStrings("+OK\r\n", writer.buffered());
+
+    // Verify the policy was changed
+    const ts = try store.getTimeSeries("myts");
+    try testing.expectEqual(Duplicate_Policy.LAST, ts.?.duplicate_policy);
+}
+
+test "TS.MGET returns multiple time series" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create first time series with value
+    const create_args1 = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "ts1" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args1);
+
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const add_args1 = [_]Value{
+        .{ .data = "TS.ADD" },
+        .{ .data = "ts1" },
+        .{ .data = "1000" },
+        .{ .data = "100.0" },
+    };
+    try ts_commands.ts_add(&writer, &store, &add_args1);
+
+    // Create second time series with value
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const create_args2 = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "ts2" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args2);
+
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const add_args2 = [_]Value{
+        .{ .data = "TS.ADD" },
+        .{ .data = "ts2" },
+        .{ .data = "2000" },
+        .{ .data = "200.0" },
+    };
+    try ts_commands.ts_add(&writer, &store, &add_args2);
+
+    // MGET both time series
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const mget_args = [_]Value{
+        .{ .data = "TS.MGET" },
+        .{ .data = "ts1" },
+        .{ .data = "ts2" },
+    };
+    try ts_commands.ts_mget(&writer, &store, &mget_args);
+
+    const output = writer.buffered();
+    // Should return array of 2 elements
+    try testing.expect(std.mem.startsWith(u8, output, "*2\r\n"));
+    // Should contain both values (formatted as "100" and "200" in RESP)
+    try testing.expect(std.mem.indexOf(u8, output, "$3\r\n100\r\n") != null or std.mem.indexOf(u8, output, "$5\r\n100.0\r\n") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "$3\r\n200\r\n") != null or std.mem.indexOf(u8, output, "$5\r\n200.0\r\n") != null);
+}
+
+test "TS.MGET handles missing keys" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create only one time series
+    const create_args = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "ts1" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args);
+
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const add_args = [_]Value{
+        .{ .data = "TS.ADD" },
+        .{ .data = "ts1" },
+        .{ .data = "1000" },
+        .{ .data = "100.0" },
+    };
+    try ts_commands.ts_add(&writer, &store, &add_args);
+
+    // MGET with one existing and one missing key
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const mget_args = [_]Value{
+        .{ .data = "TS.MGET" },
+        .{ .data = "ts1" },
+        .{ .data = "nonexistent" },
+    };
+    try ts_commands.ts_mget(&writer, &store, &mget_args);
+
+    const output = writer.buffered();
+    // Should return array of 2 elements
+    try testing.expect(std.mem.startsWith(u8, output, "*2\r\n"));
+    // Should contain the existing value (formatted as "100" in RESP)
+    try testing.expect(std.mem.indexOf(u8, output, "$3\r\n100\r\n") != null or std.mem.indexOf(u8, output, "$5\r\n100.0\r\n") != null);
+    // Should contain a null for the missing key
+    try testing.expect(std.mem.indexOf(u8, output, "$-1") != null);
+}

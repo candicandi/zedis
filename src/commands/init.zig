@@ -422,5 +422,41 @@ pub fn initRegistry(allocator: Allocator) !CommandRegistry {
         .write_to_aof = false,
     });
 
+    try registry.register(.{
+        .name = "TS.INCRBY",
+        .handler = .{ .store_handler = ts.ts_incrby },
+        .min_args = 4,
+        .max_args = 4,
+        .description = "Increment the last value and add as a new sample",
+        .write_to_aof = true,
+    });
+
+    try registry.register(.{
+        .name = "TS.DECRBY",
+        .handler = .{ .store_handler = ts.ts_decrby },
+        .min_args = 4,
+        .max_args = 4,
+        .description = "Decrement the last value and add as a new sample",
+        .write_to_aof = true,
+    });
+
+    try registry.register(.{
+        .name = "TS.ALTER",
+        .handler = .{ .store_handler = ts.ts_alter },
+        .min_args = 2,
+        .max_args = null,
+        .description = "Alter time series properties",
+        .write_to_aof = true,
+    });
+
+    try registry.register(.{
+        .name = "TS.MGET",
+        .handler = .{ .store_handler = ts.ts_mget },
+        .min_args = 2,
+        .max_args = null,
+        .description = "Get last samples from multiple time series",
+        .write_to_aof = false,
+    });
+
     return registry;
 }

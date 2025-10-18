@@ -328,4 +328,24 @@ pub const TimeSeries = struct {
         // Apply retention policy - evict chunks outside retention window
         self.evictExpiredChunks(timestamp);
     }
+
+    /// Get the last value in the time series, or 0.0 if empty
+    pub fn getLastValue(self: *const TimeSeries) f64 {
+        if (self.last_sample) |sample| {
+            return sample.value;
+        }
+        return 0.0;
+    }
+
+    /// Alter time series properties
+    pub fn alter(
+        self: *TimeSeries,
+        retention_ms: ?u64,
+        duplicate_policy: ?Duplicate_Policy,
+        chunk_size: ?u16,
+    ) void {
+        if (retention_ms) |r| self.retention_ms = r;
+        if (duplicate_policy) |dp| self.duplicate_policy = dp;
+        if (chunk_size) |cs| self.max_chunk_samples = cs;
+    }
 };
