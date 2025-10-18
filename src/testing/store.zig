@@ -459,3 +459,93 @@ test "Store empty list operations" {
     try testing.expectEqual(@as(usize, 2), list.len());
     try testing.expectEqual(@as(i64, 0), list.getByIndex(1).?.int);
 }
+
+test "Store flush_db removes all keys" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    // Add various types of keys
+    try store.set("str1", "hello");
+    try store.set("str2", "world");
+    try store.setInt("int1", 42);
+    try store.setInt("int2", -100);
+
+    const list = try store.createList("mylist");
+    try list.append(.{ .string = "item1" });
+    try list.append(.{ .string = "item2" });
+
+    // Verify all keys exist
+    try testing.expectEqual(@as(u32, 5), store.size());
+    try testing.expect(store.exists("str1"));
+    try testing.expect(store.exists("str2"));
+    try testing.expect(store.exists("int1"));
+    try testing.expect(store.exists("int2"));
+    try testing.expect(store.exists("mylist"));
+
+    // Flush the database
+    store.flush_db();
+
+    // Verify all keys are removed
+    try testing.expectEqual(@as(u32, 0), store.size());
+    try testing.expect(!store.exists("str1"));
+    try testing.expect(!store.exists("str2"));
+    try testing.expect(!store.exists("int1"));
+    try testing.expect(!store.exists("int2"));
+    try testing.expect(!store.exists("mylist"));
+
+    // Verify getting keys returns null
+    try testing.expect(store.get("str1") == null);
+    try testing.expect(store.get("int1") == null);
+    try testing.expect(try store.getList("mylist") == null);
+}
+
+test "Store flush_db on empty store" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    try testing.expectEqual(@as(u32, 0), store.size());
+
+    // Flush empty store should not crash
+    store.flush_db();
+
+    try testing.expectEqual(@as(u32, 0), store.size());
+}
+
+test "Store flush_db allows reuse after flush" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    // Add keys
+    try store.set("key1", "value1");
+    try store.setInt("key2", 123);
+    try testing.expectEqual(@as(u32, 2), store.size());
+
+    // Flush
+    store.flush_db();
+    try testing.expectEqual(@as(u32, 0), store.size());
+
+    // Add new keys after flush
+    try store.set("key3", "value3");
+    try store.setInt("key4", 456);
+    try testing.expectEqual(@as(u32, 2), store.size());
+
+    // Verify new keys work correctly
+    try testing.expectEqualStrings("value3", store.get("key3").?.value.short_string.asSlice());
+    try testing.expectEqual(@as(i64, 456), store.get("key4").?.value.int);
+
+    // Verify old keys don't exist
+    try testing.expect(store.get("key1") == null);
+    try testing.expect(store.get("key2") == null);
+}

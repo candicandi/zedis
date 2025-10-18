@@ -8,6 +8,7 @@ const rdb = @import("../commands/rdb.zig");
 const pubsub = @import("../commands/pubsub.zig");
 const ts = @import("../commands/time_series.zig");
 const key = @import("../commands/keys.zig");
+const server_commands = @import("../commands/server.zig");
 
 pub fn initRegistry(allocator: Allocator) !CommandRegistry {
     var registry = CommandRegistry.init(allocator);
@@ -456,6 +457,35 @@ pub fn initRegistry(allocator: Allocator) !CommandRegistry {
         .max_args = null,
         .description = "Get last samples from multiple time series",
         .write_to_aof = false,
+    });
+
+    // Server commands
+
+    try registry.register(.{
+        .name = "DBSIZE",
+        .handler = .{ .store_handler = server_commands.db_size },
+        .min_args = 1,
+        .max_args = 1,
+        .description = "Get database size",
+        .write_to_aof = false,
+    });
+
+    try registry.register(.{
+        .name = "FLUSHDB",
+        .handler = .{ .client_handler = server_commands.flush_db },
+        .min_args = 1,
+        .max_args = 1,
+        .description = "Flush the current database",
+        .write_to_aof = true,
+    });
+
+    try registry.register(.{
+        .name = "FLUSHALL",
+        .handler = .{ .client_handler = server_commands.flush_all },
+        .min_args = 1,
+        .max_args = 1,
+        .description = "Flush all databases",
+        .write_to_aof = true,
     });
 
     return registry;

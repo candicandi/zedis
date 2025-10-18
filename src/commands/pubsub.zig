@@ -42,10 +42,8 @@ pub const PubSubContext = struct {
     }
 };
 
-pub fn subscribe(client: *Client, args: []const Value) !void {
+pub fn subscribe(client: *Client, args: []const Value, writer: *std.Io.Writer) !void {
     var pubsub_context = client.pubsub_context;
-    var sw = client.connection.stream.writer(&.{});
-    const writer = &sw.interface;
 
     // Enter pubsub mode on first subscription
     if (!client.is_in_pubsub_mode) {
@@ -87,13 +85,11 @@ pub fn subscribe(client: *Client, args: []const Value) !void {
     }
 }
 
-pub fn publish(client: *Client, args: []const Value) !void {
+pub fn publish(client: *Client, args: []const Value, writer: *std.Io.Writer) !void {
     var pubsub_context = client.pubsub_context;
     const channel_name = args[1].asSlice();
     const message = args[2].asSlice();
     var messages_sent: i64 = 0;
-    var sw = client.connection.stream.writer(&.{});
-    const writer = &sw.interface;
 
     // Get subscribers for this channel
     const subscribers = pubsub_context.getChannelSubscribers(channel_name);

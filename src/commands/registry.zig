@@ -23,14 +23,14 @@ pub const CommandError = error{
 
 pub const CommandHandler = union(enum) {
     default: DefaultHandler,
-    client_handler: ClientHander,
+    client_handler: ClientHandler,
     store_handler: StoreHandler,
 };
 
 // No side-effects
 pub const DefaultHandler = *const fn (writer: *std.Io.Writer, args: []const Value) anyerror!void;
 // Requires client
-pub const ClientHander = *const fn (client: *Client, args: []const Value) anyerror!void;
+pub const ClientHandler = *const fn (client: *Client, args: []const Value, writer: *std.Io.Writer) anyerror!void;
 // Requires store
 pub const StoreHandler = *const fn (writer: *std.Io.Writer, store: *Store, args: []const Value) anyerror!void;
 
@@ -169,7 +169,7 @@ pub const CommandRegistry = struct {
             switch (cmd_info.handler) {
                 .client_handler => |handler| {
                     // If we haven't provided a client, this is an invariant failure
-                    handler(client, args) catch |err| {
+                    handler(client, args, writer) catch |err| {
                         handleCommandError(writer, cmd_info.name, err);
                         return;
                     };

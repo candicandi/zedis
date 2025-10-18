@@ -7,10 +7,8 @@ const Value = @import("../parser.zig").Value;
 const ZDB = @import("../rdb/zdb.zig");
 const resp = @import("./resp.zig");
 
-pub fn save(client: *Client, args: []const Value) !void {
+pub fn save(client: *Client, args: []const Value, writer: *std.Io.Writer) !void {
     _ = args;
-    var sw = client.connection.stream.writer(&.{});
-    const writer = &sw.interface;
 
     // SAVE command saves the currently selected database
     var zdb = try ZDB.Writer.init(client.allocator, client.getCurrentStore(), "test.rdb");

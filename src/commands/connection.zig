@@ -18,17 +18,13 @@ pub fn echo(writer: *std.Io.Writer, args: []const Value) !void {
 }
 
 // QUIT command implementation
-pub fn quit(client: *Client, args: []const Value) !void {
-    var sw = client.connection.stream.writer(&.{});
-    const writer = &sw.interface;
+pub fn quit(client: *Client, args: []const Value, writer: *std.Io.Writer) !void {
     _ = args; // Unused parameter
     try resp.writeOK(writer);
     client.connection.stream.close();
 }
 
-pub fn auth(client: *Client, args: []const Value) !void {
-    var sw = client.connection.stream.writer(&.{});
-    const writer = &sw.interface;
+pub fn auth(client: *Client, args: []const Value, writer: *std.Io.Writer) !void {
     const password = args[1].asSlice();
 
     if (!client.server.config.requiresAuth()) {
@@ -45,10 +41,7 @@ pub fn auth(client: *Client, args: []const Value) !void {
 }
 
 // SELECT command implementation - switch database
-pub fn select(client: *Client, args: []const Value) !void {
-    var sw = client.connection.stream.writer(&.{});
-    const writer = &sw.interface;
-
+pub fn select(client: *Client, args: []const Value, writer: *std.Io.Writer) !void {
     const db_str = args[1].asSlice();
     const db_index = std.fmt.parseInt(u8, db_str, 10) catch {
         return error.InvalidDatabaseIndex;

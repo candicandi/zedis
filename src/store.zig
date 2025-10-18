@@ -452,6 +452,31 @@ pub const Store = struct {
         return key;
     }
 
+    pub inline fn flush_db(self: *Store) void {
+        var map_it = self.map.iterator();
+        while (map_it.next()) |entry| {
+            switch (entry.value_ptr.*.value) {
+                .string => |str| {
+                    if (str.len > 0) self.smartFree(str);
+                },
+                .int => {},
+                .list => |*list| @constCast(list).deinit(),
+                .short_string => {},
+                .time_series => |*ts| ts.deinit(),
+            }
+        }
+
+        // Free interned strings
+        var intern_it = self.interned_strings.iterator();
+        while (intern_it.next()) |entry| {
+            if (entry.key_ptr.*.len > 0) self.smartFree(entry.key_ptr.*);
+        }
+
+        // Clear the maps to remove all keys
+        self.map.clearRetainingCapacity();
+        self.interned_strings.clearRetainingCapacity();
+    }
+
     /// Get memory pool statistics
     pub fn getPoolStats(self: *Store) PoolStats {
         const hits = self.pool_hits.load(.acquire);
