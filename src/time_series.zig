@@ -4,9 +4,8 @@ const BitStream = gorilla.BitStream;
 const TimestampCompressor = gorilla.TimestampCompressor;
 const ValueCompressor = gorilla.ValueCompressor;
 const ChunkCompressor = gorilla.ChunkCompressor;
-const simd = @import("./simd.zig");
 
-const eql = simd.simdStringEql;
+const eql = std.mem.eql;
 
 const Sample = struct {
     timestamp: i64,
@@ -22,12 +21,12 @@ pub const Duplicate_Policy = enum {
     SUM,
 
     pub fn fromString(s: []const u8) ?Duplicate_Policy {
-        if (eql(s, "BLOCK")) return .BLOCK;
-        if (eql(s, "FIRST")) return .FIRST;
-        if (eql(s, "LAST")) return .LAST;
-        if (eql(s, "MIN")) return .MIN;
-        if (eql(s, "MAX")) return .MAX;
-        if (eql(s, "SUM")) return .SUM;
+        if (eql(u8, s, "BLOCK")) return .BLOCK;
+        if (eql(u8, s, "FIRST")) return .FIRST;
+        if (eql(u8, s, "LAST")) return .LAST;
+        if (eql(u8, s, "MIN")) return .MIN;
+        if (eql(u8, s, "MAX")) return .MAX;
+        if (eql(u8, s, "SUM")) return .SUM;
         return null;
     }
 };
@@ -37,8 +36,8 @@ pub const EncodingType = enum(u8) {
     DeltaXor,
 
     pub fn fromString(s: []const u8) ?EncodingType {
-        if (eql(s, "UNCOMPRESSED")) return .Uncompressed;
-        if (eql(s, "COMPRESSED")) return .DeltaXor;
+        if (eql(u8, s, "UNCOMPRESSED")) return .Uncompressed;
+        if (eql(u8, s, "COMPRESSED")) return .DeltaXor;
         return null;
     }
 };

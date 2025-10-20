@@ -7,9 +7,8 @@ const ts_mod = @import("../time_series.zig");
 const TimeSeries = ts_mod.TimeSeries;
 const Duplicate_Policy = ts_mod.Duplicate_Policy;
 const EncodingType = ts_mod.EncodingType;
-const simd = @import("../simd.zig");
 
-const eql = simd.simdStringEql;
+const eql = std.mem.eql;
 
 /// Helper to write last sample in RESP format
 fn writeLastSample(writer: *std.Io.Writer, time_series: *TimeSeries) !void {
@@ -54,19 +53,19 @@ pub fn ts_create(writer: *std.Io.Writer, store: *Store, args: []const Value) !vo
     var ignore_max_val_diff: ?f64 = null;
 
     for (args, 0..) |value, i| {
-        if (eql(value.asSlice(), "RETENTION")) {
+        if (eql(u8, value.asSlice(), "RETENTION")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             retention_ms = try args[i + 1].asU64();
-        } else if (eql(value.asSlice(), "ENCODING")) {
+        } else if (eql(u8, value.asSlice(), "ENCODING")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             encoding = args[i + 1].asSlice();
-        } else if (eql(value.asSlice(), "CHUNK_SIZE")) {
+        } else if (eql(u8, value.asSlice(), "CHUNK_SIZE")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             chunk_size = try args[i + 1].asU16();
-        } else if (eql(value.asSlice(), "DUPLICATE_POLICY")) {
+        } else if (eql(u8, value.asSlice(), "DUPLICATE_POLICY")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             duplicate_policy = args[i + 1].asSlice();
-        } else if (eql(value.asSlice(), "IGNORE")) {
+        } else if (eql(u8, value.asSlice(), "IGNORE")) {
             if (i + 1 >= args.len or i + 2 >= args.len) return error.SyntaxError;
             ignore_max_time_diff = try args[i + 1].asU64();
             ignore_max_val_diff = try args[i + 2].asF64();
@@ -138,15 +137,15 @@ pub fn ts_alter(writer: *std.Io.Writer, store: *Store, args: []const Value) !voi
         var i: usize = 2;
         while (i < args.len) : (i += 1) {
             const arg = args[i].asSlice();
-            if (eql(arg, "RETENTION")) {
+            if (eql(u8, arg, "RETENTION")) {
                 if (i + 1 >= args.len) return error.SyntaxError;
                 retention_ms = try args[i + 1].asU64();
                 i += 1;
-            } else if (eql(arg, "CHUNK_SIZE")) {
+            } else if (eql(u8, arg, "CHUNK_SIZE")) {
                 if (i + 1 >= args.len) return error.SyntaxError;
                 chunk_size = try args[i + 1].asU16();
                 i += 1;
-            } else if (eql(arg, "DUPLICATE_POLICY")) {
+            } else if (eql(u8, arg, "DUPLICATE_POLICY")) {
                 if (i + 1 >= args.len) return error.SyntaxError;
                 duplicate_policy = .fromString(args[i + 1].asSlice());
                 i += 1;

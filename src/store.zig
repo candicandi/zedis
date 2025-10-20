@@ -1,6 +1,5 @@
 const std = @import("std");
 const SafeMemoryPool = @import("./safe_memory_pool.zig");
-const simd = @import("./simd.zig");
 const PrimitiveValue = @import("types.zig").PrimitiveValue;
 const ZedisList = @import("list.zig").ZedisList;
 const ZedisListNode = @import("list.zig").ZedisListNode;
@@ -82,7 +81,7 @@ const StringContext = struct {
         // For interned strings, this becomes pointer comparison
         if (a.ptr == b.ptr) return true;
 
-        return simd.simdStringEql(a, b);
+        return std.mem.eql(u8, a, b);
     }
 };
 
