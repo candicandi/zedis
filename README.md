@@ -94,11 +94,9 @@ zig build -Doptimize=ReleaseFast
 zig build test
 ```
 
-## Contact
+## Stay Connected
 
-- GitHub: [@barddoo](https://github.com/barddoo)
-- Project Link: [https://github.com/barddoo/zedis](https://github.com/barddoo/zedis)
-- LinkedIn: [Charles Fonseca](https://www.linkedin.com/in/charlesjrfonseca/)
+- Subscribe to my [newsletter](https://substack.com/@charlesfonseca)
 
 ## Thanks
 - [Andrew Kelley](https://andrewkelley.me) - For creating the amazing [Zig Language](https://ziglang.org/).
