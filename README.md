@@ -1,4 +1,5 @@
 # Zedis
+[![Release](https://github.com/barddoo/zedis/actions/workflows/release.yml/badge.svg)](https://github.com/barddoo/zedis/actions/workflows/release.yml)
 
 A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), designed for learning and experimentation. Zedis implements the core Redis protocol and data structures with a focus on simplicity, performance, and thread safety.
 
@@ -10,18 +11,20 @@ A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), 
 - **Multiple Data Types**: String and integer value storage with automatic type conversion.
 - **Core Commands**: Essential Redis commands including GET, SET, INCR, DECR, DEL, EXISTS, and TYPE.
 - **High Performance**: Written in Zig for optimal performance and memory safety.
-- **Connection Management**: Handles multiple concurrent client connections.
+- **Key Expiration**: Set time-to-live (TTL) for keys with background expiration handling.
 - **Disk persistence (RDB)**: Point-in-time snapshots of your dataset.
+- **Append-only file (AOF)**: Durable write-ahead logging for data recovery.
 - **Memory Management**: No memory allocation during command execution.
 - **Pub/Sub**: Decoupled communication between services.
-- **Key Expiration**: Set time-to-live (TTL) for keys with background expiration handling.
-- **Time Series**: Time series data structure. **New!**
+- **Time Series**: Time series data structure. **Now with Gorilla compression!**
 
 ## Roadmap
 
 See the [open issues](https://github.com/barddoo/zedis/issues) for upcoming features and improvements.
 
 ## Quick Start
+
+Download the binary from the [releases page](https://github.com/barddoo/zedis/releases) or build from source to get started with Zedis.
 
 ### Prerequisites
 
