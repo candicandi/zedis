@@ -2,8 +2,8 @@ const std = @import("std");
 const eql = std.mem.eql;
 
 const BitStream = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .{},
-    allocator: std.mem.Allocator,
+    buffer: std.ArrayListUnmanaged(u8) = .empty,
+    allocator: ?std.mem.Allocator = null,
     // Bit position in the stream
     bit_offset: usize = 0,
 
@@ -13,13 +13,23 @@ const BitStream = struct {
         };
     }
 
+    /// Initialize a read-only BitStream from existing data (zero-copy, no allocation)
+    pub fn initReadOnly(data: []const u8) BitStream {
+        return .{
+            .buffer = .{ .items = @constCast(data), .capacity = data.len },
+            .allocator = null,
+        };
+    }
+
     pub fn deinit(self: *BitStream) void {
-        self.buffer.deinit(self.allocator);
+        if (self.allocator) |alloc| {
+            self.buffer.deinit(alloc);
+        }
     }
 
     pub fn write_bit(self: *BitStream, bit: u1) !void {
         if (self.bit_offset == 0) {
-            try self.buffer.append(self.allocator, 0);
+            try self.buffer.append(self.allocator.?, 0);
         }
         const last_byte = &self.buffer.items[self.buffer.items.len - 1];
         if (bit == 1) {
@@ -230,7 +240,9 @@ const ValueCompressor = struct {
                 const new_trailing_zeros = @ctz(xor);
 
                 // Note: XOR can never be all zeros here (checked above), so len_meaningful > 0
-                if (new_leading_zeros >= self.last_leading_zeros and
+                // On count == 1, we must use case 2 to establish initial leading/trailing zeros
+                if (self.count > 1 and
+                    new_leading_zeros >= self.last_leading_zeros and
                     new_trailing_zeros >= self.last_trailing_zeros)
                 {
                     // Case 1: Meaningful bits fit inside previous block
@@ -258,9 +270,10 @@ const ValueCompressor = struct {
                         // Trailing zeros >= 64 means the whole value is zeros, which shouldn't happen here
                         try self.stream.write_bits(0, len_meaningful);
                     }
+                    // Only update leading/trailing zeros when using new position (case 2)
+                    self.last_leading_zeros = new_leading_zeros;
+                    self.last_trailing_zeros = new_trailing_zeros;
                 }
-                self.last_leading_zeros = new_leading_zeros;
-                self.last_trailing_zeros = new_trailing_zeros;
             }
         }
         self.last_value_bits = value_bits;
@@ -306,7 +319,14 @@ const ValueDecompressor = struct {
                     const len_meaningful = try self.stream.read_bits(6);
 
                     self.last_leading_zeros = @intCast(leading_zeros);
-                    self.last_trailing_zeros = 64 - self.last_leading_zeros - @as(u8, @intCast(len_meaningful));
+
+                    // Validate the invariant: leading_zeros + len_meaningful + trailing_zeros = 64
+                    // This prevents integer overflow and detects corrupted data
+                    const sum = self.last_leading_zeros + @as(u8, @intCast(len_meaningful));
+                    if (sum > 64) {
+                        return error.CorruptedData;
+                    }
+                    self.last_trailing_zeros = 64 - sum;
 
                     if (len_meaningful > 0) {
                         const meaningful_bits = try self.stream.read_bits(@intCast(len_meaningful));
@@ -358,19 +378,13 @@ pub const ChunkDecompressor = struct {
     stream: BitStream,
     ts_decompressor: TimestampDecompressor,
     val_decompressor: ValueDecompressor,
-    allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, compressed_data: []const u8) !ChunkDecompressor {
-        var stream = BitStream.init(allocator);
-        try stream.buffer.appendSlice(allocator, compressed_data);
-        stream.reset_read();
-
+    pub fn init(compressed_data: []const u8) ChunkDecompressor {
         return .{
-            .stream = stream,
+            .stream = BitStream.initReadOnly(compressed_data),
             // Initialize with dummy pointers, will be fixed in next()
             .ts_decompressor = .{ .stream = undefined, .last_ts = 0, .previous_delta = 0, .count = 0 },
             .val_decompressor = .{ .stream = undefined, .last_value_bits = 0, .last_leading_zeros = 0, .last_trailing_zeros = 0, .count = 0 },
-            .allocator = allocator,
         };
     }
 
@@ -441,7 +455,7 @@ test "ChunkCompressor: compress and decompress simple sequence" {
     const compressed = compressor.stream.items();
 
     // Decompress data
-    var decompressor = try ChunkDecompressor.init(allocator, compressed);
+    var decompressor = ChunkDecompressor.init(compressed);
     defer decompressor.deinit();
 
     for (timestamps, values) |expected_ts, expected_val| {
@@ -466,7 +480,7 @@ test "ChunkCompressor: compress identical timestamps (optimal delta-of-delta)" {
 
     const compressed = compressor.stream.items();
 
-    var decompressor = try ChunkDecompressor.init(allocator, compressed);
+    var decompressor = ChunkDecompressor.init(compressed);
     defer decompressor.deinit();
 
     i = 0;
@@ -491,7 +505,7 @@ test "ChunkCompressor: compress identical values (optimal XOR compression)" {
 
     const compressed = compressor.stream.items();
 
-    var decompressor = try ChunkDecompressor.init(allocator, compressed);
+    var decompressor = ChunkDecompressor.init(compressed);
     defer decompressor.deinit();
 
     i = 0;
@@ -523,7 +537,7 @@ test "ChunkCompressor: compress varying deltas and values" {
 
     const compressed = compressor.stream.items();
 
-    var decompressor = try ChunkDecompressor.init(allocator, compressed);
+    var decompressor = ChunkDecompressor.init(compressed);
     defer decompressor.deinit();
 
     for (test_data) |expected| {
@@ -548,7 +562,7 @@ test "ChunkCompressor: negative timestamps" {
 
     const compressed = compressor.stream.items();
 
-    var decompressor = try ChunkDecompressor.init(allocator, compressed);
+    var decompressor = ChunkDecompressor.init(compressed);
     defer decompressor.deinit();
 
     for (timestamps, values) |expected_ts, expected_val| {
@@ -573,7 +587,7 @@ test "ChunkCompressor: diverse float values" {
 
     const compressed = compressor.stream.items();
 
-    var decompressor = try ChunkDecompressor.init(allocator, compressed);
+    var decompressor = ChunkDecompressor.init(compressed);
     defer decompressor.deinit();
 
     for (timestamps, values) |expected_ts, expected_val| {

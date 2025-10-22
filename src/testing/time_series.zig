@@ -746,72 +746,191 @@ test "TS.ALTER changes duplicate policy" {
     try testing.expectEqual(Duplicate_Policy.LAST, ts.?.duplicate_policy);
 }
 
-test "TS.MGET returns multiple time series" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+test "TS.RANGE returns samples from active unsealed chunk - Uncompressed" {
+    const allocator = testing.allocator;
 
-    var store = Store.init(allocator, 4096);
-    defer store.deinit();
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100, // Large chunk size to avoid sealing
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
 
-    var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    // Add samples without sealing the chunk
+    try ts.addSample(1000, 10.0);
+    try ts.addSample(2000, 20.0);
+    try ts.addSample(3000, 30.0);
 
-    // Create first time series with value
-    const create_args1 = [_]Value{
-        .{ .data = "TS.CREATE" },
-        .{ .data = "ts1" },
-    };
-    try ts_commands.ts_create(&writer, &store, &create_args1);
+    // Verify chunk is active (not sealed)
+    try testing.expect(ts.tail != null);
+    try testing.expectEqual(@as(usize, 0), ts.tail.?.data.len); // No sealed data yet
 
-    buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
-    const add_args1 = [_]Value{
-        .{ .data = "TS.ADD" },
-        .{ .data = "ts1" },
-        .{ .data = "1000" },
-        .{ .data = "100.0" },
-    };
-    try ts_commands.ts_add(&writer, &store, &add_args1);
+    // Query range - should read from active buffer
+    var samples = try ts.range("-", "+", null);
+    defer samples.deinit(allocator);
 
-    // Create second time series with value
-    buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
-    const create_args2 = [_]Value{
-        .{ .data = "TS.CREATE" },
-        .{ .data = "ts2" },
-    };
-    try ts_commands.ts_create(&writer, &store, &create_args2);
-
-    buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
-    const add_args2 = [_]Value{
-        .{ .data = "TS.ADD" },
-        .{ .data = "ts2" },
-        .{ .data = "2000" },
-        .{ .data = "200.0" },
-    };
-    try ts_commands.ts_add(&writer, &store, &add_args2);
-
-    // MGET both time series
-    buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
-    const mget_args = [_]Value{
-        .{ .data = "TS.MGET" },
-        .{ .data = "ts1" },
-        .{ .data = "ts2" },
-    };
-    try ts_commands.ts_mget(&writer, &store, &mget_args);
-
-    const output = writer.buffered();
-    // Should return array of 2 elements
-    try testing.expect(std.mem.startsWith(u8, output, "*2\r\n"));
-    // Should contain both values (formatted as "100" and "200" in RESP)
-    try testing.expect(std.mem.indexOf(u8, output, "$3\r\n100\r\n") != null or std.mem.indexOf(u8, output, "$5\r\n100.0\r\n") != null);
-    try testing.expect(std.mem.indexOf(u8, output, "$3\r\n200\r\n") != null or std.mem.indexOf(u8, output, "$5\r\n200.0\r\n") != null);
+    try testing.expectEqual(@as(usize, 3), samples.items.len);
+    try testing.expectEqual(@as(i64, 1000), samples.items[0].timestamp);
+    try testing.expectEqual(@as(f64, 10.0), samples.items[0].value);
+    try testing.expectEqual(@as(i64, 2000), samples.items[1].timestamp);
+    try testing.expectEqual(@as(f64, 20.0), samples.items[1].value);
+    try testing.expectEqual(@as(i64, 3000), samples.items[2].timestamp);
+    try testing.expectEqual(@as(f64, 30.0), samples.items[2].value);
 }
 
-test "TS.MGET handles missing keys" {
+test "TS.RANGE can read from active unsealed chunk (hybrid approach)" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .DeltaXor, // Compressed encoding
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Add samples without sealing
+    try ts.addSample(1000, 100.0);
+    try ts.addSample(2000, 105.0);
+    try ts.addSample(3000, 110.0);
+
+    // Verify chunk is active (unsealed)
+    try testing.expect(ts.tail != null);
+    try testing.expectEqual(@as(usize, 0), ts.tail.?.data.len);
+
+    // Query range - with hybrid approach, active chunks are always readable
+    // Active samples are kept uncompressed regardless of encoding setting
+    // Compression only happens during chunk sealing
+    var samples = try ts.range("-", "+", null);
+    defer samples.deinit(allocator);
+
+    // Active chunk should return all 3 samples
+    try testing.expectEqual(@as(usize, 3), samples.items.len);
+    try testing.expectEqual(@as(i64, 1000), samples.items[0].timestamp);
+    try testing.expectEqual(@as(f64, 100.0), samples.items[0].value);
+    try testing.expectEqual(@as(i64, 2000), samples.items[1].timestamp);
+    try testing.expectEqual(@as(f64, 105.0), samples.items[1].value);
+    try testing.expectEqual(@as(i64, 3000), samples.items[2].timestamp);
+    try testing.expectEqual(@as(f64, 110.0), samples.items[2].value);
+}
+
+test "TS.RANGE with COUNT parameter limits results" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Add 10 samples
+    var i: i64 = 0;
+    while (i < 10) : (i += 1) {
+        try ts.addSample(1000 + i * 100, @as(f64, @floatFromInt(i)));
+    }
+
+    // Query with COUNT 5
+    var samples = try ts.range("-", "+", 5);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 5), samples.items.len);
+    try testing.expectEqual(@as(i64, 1000), samples.items[0].timestamp);
+    try testing.expectEqual(@as(f64, 0.0), samples.items[0].value);
+    try testing.expectEqual(@as(i64, 1400), samples.items[4].timestamp);
+    try testing.expectEqual(@as(f64, 4.0), samples.items[4].value);
+}
+
+test "TS.RANGE with COUNT zero returns empty" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    try ts.addSample(1000, 10.0);
+    try ts.addSample(2000, 20.0);
+
+    // COUNT 0 is not valid, but let's test the edge case
+    var samples = try ts.range("-", "+", 0);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 0), samples.items.len);
+}
+
+test "TS.RANGE with COUNT larger than available samples returns all" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    try ts.addSample(1000, 10.0);
+    try ts.addSample(2000, 20.0);
+    try ts.addSample(3000, 30.0);
+
+    // Request 100 samples but only 3 exist
+    var samples = try ts.range("-", "+", 100);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 3), samples.items.len);
+}
+
+test "TS.RANGE with COUNT across multiple chunks" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        3, // Small chunks to force multiple
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Add 10 samples, creating multiple chunks
+    var i: i64 = 0;
+    while (i < 10) : (i += 1) {
+        try ts.addSample(1000 + i * 100, @as(f64, @floatFromInt(i)));
+    }
+
+    // Query with COUNT 7 - should span across 3 chunks
+    var samples = try ts.range("-", "+", 7);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 7), samples.items.len);
+    try testing.expectEqual(@as(i64, 1000), samples.items[0].timestamp);
+    try testing.expectEqual(@as(i64, 1600), samples.items[6].timestamp);
+}
+
+test "TS.RANGE command with COUNT parameter" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -822,38 +941,158 @@ test "TS.MGET handles missing keys" {
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    // Create only one time series
+    // Create time series with uncompressed encoding
     const create_args = [_]Value{
         .{ .data = "TS.CREATE" },
-        .{ .data = "ts1" },
+        .{ .data = "myts" },
+        .{ .data = "ENCODING" },
+        .{ .data = "UNCOMPRESSED" },
     };
     try ts_commands.ts_create(&writer, &store, &create_args);
 
-    buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
-    const add_args = [_]Value{
-        .{ .data = "TS.ADD" },
-        .{ .data = "ts1" },
-        .{ .data = "1000" },
-        .{ .data = "100.0" },
-    };
-    try ts_commands.ts_add(&writer, &store, &add_args);
+    // Add 5 samples
+    var i: usize = 0;
+    while (i < 5) : (i += 1) {
+        buffer = std.mem.zeroes([4096]u8);
+        writer = std.Io.Writer.fixed(&buffer);
+        const timestamp_str = try std.fmt.allocPrint(allocator, "{d}", .{1000 + i * 100});
+        const value_str = try std.fmt.allocPrint(allocator, "{d}.0", .{i * 10});
+        const add_args = [_]Value{
+            .{ .data = "TS.ADD" },
+            .{ .data = "myts" },
+            .{ .data = timestamp_str },
+            .{ .data = value_str },
+        };
+        try ts_commands.ts_add(&writer, &store, &add_args);
+    }
 
-    // MGET with one existing and one missing key
+    // Range with COUNT 3
     buffer = std.mem.zeroes([4096]u8);
     writer = std.Io.Writer.fixed(&buffer);
-    const mget_args = [_]Value{
-        .{ .data = "TS.MGET" },
-        .{ .data = "ts1" },
-        .{ .data = "nonexistent" },
+    const range_args = [_]Value{
+        .{ .data = "TS.RANGE" },
+        .{ .data = "myts" },
+        .{ .data = "-" },
+        .{ .data = "+" },
+        .{ .data = "COUNT" },
+        .{ .data = "3" },
     };
-    try ts_commands.ts_mget(&writer, &store, &mget_args);
+    try ts_commands.ts_range(&writer, &store, &range_args);
 
     const output = writer.buffered();
-    // Should return array of 2 elements
-    try testing.expect(std.mem.startsWith(u8, output, "*2\r\n"));
-    // Should contain the existing value (formatted as "100" in RESP)
-    try testing.expect(std.mem.indexOf(u8, output, "$3\r\n100\r\n") != null or std.mem.indexOf(u8, output, "$5\r\n100.0\r\n") != null);
-    // Should contain a null for the missing key
-    try testing.expect(std.mem.indexOf(u8, output, "$-1") != null);
+    // Should return array of 3 elements
+    try testing.expect(std.mem.startsWith(u8, output, "*3\r\n"));
+}
+
+test "TS.RANGE with 5000 random samples using compressed encoding" {
+    const allocator = testing.allocator;
+
+    // Create a PRNG with fixed seed for reproducibility
+    var prng = std.Random.DefaultPrng.init(12345);
+    const random = prng.random();
+
+    // Create time series with compressed encoding and reasonable chunk size
+    var ts = TimeSeries.init(
+        allocator,
+        0, // No retention
+        .BLOCK,
+        100, // 100 samples per chunk - will create ~50 chunks
+        .DeltaXor, // Use compression to test Gorilla codec at scale
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Generate and add 5000 random samples
+    const num_samples = 5000;
+    var i: i64 = 0;
+    while (i < num_samples) : (i += 1) {
+        const timestamp = 1000000 + i * 1000; // Start at 1000000, increment by 1 second
+        const value = 20.0 + random.float(f64) * 10.0; // Random temperature between 20-30°C
+        try ts.addSample(timestamp, value);
+    }
+
+    // Verify all samples were added
+    try testing.expectEqual(@as(u64, num_samples), ts.total_samples);
+
+    // Fetch all samples using range query
+    var samples = try ts.range("-", "+", null);
+    defer samples.deinit(allocator);
+
+    // Verify we got all samples back
+    try testing.expectEqual(@as(usize, num_samples), samples.items.len);
+
+    // Verify the timestamps are sequential (data integrity check)
+    for (samples.items, 0..) |sample, idx| {
+        const expected_ts = 1000000 + @as(i64, @intCast(idx)) * 1000;
+        try testing.expectEqual(expected_ts, sample.timestamp);
+        // Verify value is in expected range
+        try testing.expect(sample.value >= 20.0 and sample.value <= 30.0);
+    }
+
+    // Test range query with specific start and end timestamps
+    const start_ts = 1000000 + 1000 * 1000; // Sample 1000
+    const end_ts = 1000000 + 2000 * 1000; // Sample 2000
+    const start_str = try std.fmt.allocPrint(allocator, "{d}", .{start_ts});
+    defer allocator.free(start_str);
+    const end_str = try std.fmt.allocPrint(allocator, "{d}", .{end_ts});
+    defer allocator.free(end_str);
+
+    var range_samples = try ts.range(start_str, end_str, null);
+    defer range_samples.deinit(allocator);
+
+    // Should get samples from 1000 to 2000 inclusive (1001 samples)
+    try testing.expectEqual(@as(usize, 1001), range_samples.items.len);
+    try testing.expectEqual(start_ts, range_samples.items[0].timestamp);
+    try testing.expectEqual(end_ts, range_samples.items[range_samples.items.len - 1].timestamp);
+
+    // Test range query with COUNT parameter
+    var limited_samples = try ts.range("-", "+", 500);
+    defer limited_samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 500), limited_samples.items.len);
+    try testing.expectEqual(@as(i64, 1000000), limited_samples.items[0].timestamp);
+}
+
+test "TS.RANGE with 5000 random samples using uncompressed encoding" {
+    const allocator = testing.allocator;
+
+    var prng = std.Random.DefaultPrng.init(67890);
+    const random = prng.random();
+
+    // Create time series with uncompressed encoding
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed, // Test uncompressed path as well
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Generate and add 5000 random samples
+    const num_samples = 5000;
+    var i: i64 = 0;
+    while (i < num_samples) : (i += 1) {
+        const timestamp = 2000000 + i * 500; // Different base timestamp and interval
+        const value = 15.0 + random.float(f64) * 20.0; // Random values between 15-35
+        try ts.addSample(timestamp, value);
+    }
+
+    try testing.expectEqual(@as(u64, num_samples), ts.total_samples);
+
+    // Fetch all samples
+    var samples = try ts.range("-", "+", null);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, num_samples), samples.items.len);
+
+    // Verify data integrity
+    for (samples.items, 0..) |sample, idx| {
+        const expected_ts = 2000000 + @as(i64, @intCast(idx)) * 500;
+        try testing.expectEqual(expected_ts, sample.timestamp);
+        try testing.expect(sample.value >= 15.0 and sample.value <= 35.0);
+    }
 }

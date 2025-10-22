@@ -1,0 +1,105 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.1
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Read CHANGELOG
+        id: changelog
+        uses: mindsers/changelog-reader-action@v2
+        with:
+          version: ${{ steps.version.outputs.VERSION }}
+          path: ./CHANGELOG.md
+
+      - name: Build for Linux x86_64
+        run: |
+          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-linux
+          cp zig-out/bin/zedis zedis-${{ steps.version.outputs.VERSION }}-linux-x86_64
+
+      - name: Build for macOS x86_64
+        run: |
+          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-macos
+          cp zig-out/bin/zedis zedis-${{ steps.version.outputs.VERSION }}-macos-x86_64
+
+      - name: Build for macOS ARM64
+        run: |
+          zig build -Doptimize=ReleaseFast -Dtarget=aarch64-macos
+          cp zig-out/bin/zedis zedis-${{ steps.version.outputs.VERSION }}-macos-arm64
+
+      - name: Build for Windows x86_64
+        run: |
+          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows
+          cp zig-out/bin/zedis.exe zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe
+
+      - name: Generate checksums
+        run: |
+          sha256sum zedis-${{ steps.version.outputs.VERSION }}-* > SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            zedis-${{ steps.version.outputs.VERSION }}-linux-x86_64
+            zedis-${{ steps.version.outputs.VERSION }}-macos-x86_64
+            zedis-${{ steps.version.outputs.VERSION }}-macos-arm64
+            zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe
+            SHA256SUMS
+          body: |
+            ${{ steps.changelog.outputs.changes }}
+
+            ---
+
+            ## Installation
+
+            ### Download Binaries
+
+            Pre-built binaries are available for Linux, macOS, and Windows.
+
+            1. Download the appropriate binary for your platform
+            2. Verify the checksum against SHA256SUMS
+            3. Make the binary executable (Linux/macOS): `chmod +x zedis-*`
+            4. Run the server: `./zedis-${{ steps.version.outputs.VERSION }}-<platform>`
+
+            ### Verify Checksums
+
+            ```bash
+            sha256sum -c SHA256SUMS
+            ```
+
+            ### Quick Start
+
+            ```bash
+            # Start the server (default: 127.0.0.1:6379)
+            ./zedis-<platform>
+
+            # Connect using redis-cli
+            redis-cli -h 127.0.0.1 -p 6379
+
+            # Try some commands
+            SET mykey "Hello, Zedis!"
+            GET mykey
+            ```
+          draft: false
+          prerelease: false

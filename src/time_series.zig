@@ -4,6 +4,8 @@ const BitStream = gorilla.BitStream;
 const TimestampCompressor = gorilla.TimestampCompressor;
 const ValueCompressor = gorilla.ValueCompressor;
 const ChunkCompressor = gorilla.ChunkCompressor;
+const ChunkDecompressor = gorilla.ChunkDecompressor;
+const ValueDecompressor = gorilla.ValueDecompressor;
 
 const eql = std.mem.eql;
 
@@ -56,6 +58,7 @@ const Chunk = struct {
 pub const TimeSeries = struct {
     head: ?*Chunk,
     tail: ?*Chunk,
+
     total_samples: u64,
     retention_ms: u64,
     allocator: std.mem.Allocator,
@@ -65,11 +68,9 @@ pub const TimeSeries = struct {
     ignore_max_time_diff: u64,
     ignore_max_val_diff: f64,
 
-    // The active compressor for the tail chunk.
-    compressor: ?ChunkCompressor = null,
-
-    // Buffer for uncompressed samples before sealing chunk
-    uncompressed_buffer: ?std.ArrayList(Sample) = null,
+    // Active chunk samples - always kept uncompressed for real-time queries
+    // Compression (based on encoding setting) only applies when sealing chunks
+    active_samples: std.ArrayList(Sample),
 
     // Track last value for duplicate/IGNORE logic
     last_sample: ?Sample = null,
@@ -94,15 +95,13 @@ pub const TimeSeries = struct {
             .encoding = encoding orelse .DeltaXor,
             .ignore_max_time_diff = ignore_max_time_diff orelse 0,
             .ignore_max_val_diff = ignore_max_val_diff orelse 0.0,
+            .active_samples = .empty,
         };
     }
 
     pub fn deinit(self: *TimeSeries) void {
-        // Deinit the active compressor if it exists
-        if (self.compressor) |*c| c.deinit();
-
-        // Deinit the uncompressed buffer if it exists
-        if (self.uncompressed_buffer) |*buffer| buffer.deinit(self.allocator);
+        // Deinit the active samples buffer
+        self.active_samples.deinit(self.allocator);
 
         var chunk = self.head;
         while (chunk) |c| {
@@ -154,37 +153,38 @@ pub const TimeSeries = struct {
 
     fn sealCurrentChunk(self: *TimeSeries) !void {
         if (self.tail) |tail_chunk| {
+            // Seal by compressing active_samples based on encoding type
+            const samples = self.active_samples.items;
+
             switch (self.encoding) {
                 .DeltaXor => {
-                    if (self.compressor) |*comp| {
-                        // The chunk's data slice now points to the compressor's final buffer
-                        tail_chunk.data = try comp.stream.buffer.toOwnedSlice(self.allocator);
-                        comp.deinit(); // Deinit the old compressor
-                        self.compressor = null;
+                    // Compress using Gorilla compression
+                    var compressor = ChunkCompressor.init(self.allocator);
+                    defer compressor.deinit();
+
+                    for (samples) |sample| {
+                        try compressor.add(sample.timestamp, sample.value);
                     }
+
+                    // Transfer ownership of compressed data to chunk
+                    tail_chunk.data = try compressor.stream.buffer.toOwnedSlice(self.allocator);
                 },
                 .Uncompressed => {
-                    if (self.uncompressed_buffer) |*buffer| {
-                        const samples = buffer.items;
-                        // Each sample = 16 bytes (8 bytes timestamp + 8 bytes value)
-                        const byte_size = samples.len * 16;
-                        tail_chunk.data = try self.allocator.alloc(u8, byte_size);
+                    // Store samples in binary format (16 bytes per sample)
+                    const byte_size = samples.len * 16;
+                    tail_chunk.data = try self.allocator.alloc(u8, byte_size);
 
-                        // Convert samples to binary format
-                        for (samples, 0..) |sample, i| {
-                            const offset = i * 16;
-                            // Write timestamp (8 bytes, little-endian)
-                            std.mem.writeInt(i64, tail_chunk.data[offset..][0..8], sample.timestamp, .little);
-                            // Write value (8 bytes, reinterpret f64 as u64)
-                            const value_bits: u64 = @bitCast(sample.value);
-                            std.mem.writeInt(u64, tail_chunk.data[offset + 8 ..][0..8], value_bits, .little);
-                        }
-
-                        buffer.deinit(self.allocator);
-                        self.uncompressed_buffer = null;
+                    for (samples, 0..) |sample, i| {
+                        const offset = i * 16;
+                        std.mem.writeInt(i64, tail_chunk.data[offset..][0..8], sample.timestamp, .little);
+                        const value_bits: u64 = @bitCast(sample.value);
+                        std.mem.writeInt(u64, tail_chunk.data[offset + 8 ..][0..8], value_bits, .little);
                     }
                 },
             }
+
+            // Clear active samples for next chunk
+            self.active_samples.clearRetainingCapacity();
         }
     }
 
@@ -270,34 +270,16 @@ pub const TimeSeries = struct {
         }
         self.tail = new_chunk;
 
-        // Initialize storage based on encoding type
-        switch (self.encoding) {
-            .DeltaXor => {
-                self.compressor = ChunkCompressor.init(self.allocator);
-            },
-            .Uncompressed => {
-                // Pre-allocate capacity for optimal performance
-                self.uncompressed_buffer = try std.ArrayList(Sample).initCapacity(
-                    self.allocator,
-                    self.max_chunk_samples,
-                );
-            },
-        }
+        // active_samples is always ready - no per-encoding initialization needed
+        // Compression happens only during sealing based on encoding type
     }
 
-    /// Append sample to current chunk storage
+    /// Append sample to active chunk (always stored uncompressed)
     fn appendToChunk(self: *TimeSeries, timestamp: i64, value: f64) !void {
-        switch (self.encoding) {
-            .DeltaXor => {
-                try self.compressor.?.add(timestamp, value);
-            },
-            .Uncompressed => {
-                try self.uncompressed_buffer.?.append(self.allocator, .{
-                    .timestamp = timestamp,
-                    .value = value,
-                });
-            },
-        }
+        try self.active_samples.append(self.allocator, .{
+            .timestamp = timestamp,
+            .value = value,
+        });
     }
 
     pub fn addSample(self: *TimeSeries, timestamp: i64, value: f64) !void {
@@ -334,6 +316,100 @@ pub const TimeSeries = struct {
             return sample.value;
         }
         return 0.0;
+    }
+
+    pub fn range(self: *const TimeSeries, start: []const u8, end: []const u8, count: ?usize) !std.ArrayList(Sample) {
+        // start and end can be special values: "-" for negative infinity, "+" for positive infinity
+        const start_ts: i64 = if (eql(u8, start, "-")) std.math.minInt(i64) else try std.fmt.parseInt(i64, start, 10);
+        const end_ts: i64 = if (eql(u8, end, "+")) std.math.maxInt(i64) else try std.fmt.parseInt(i64, end, 10);
+
+        var samples: std.ArrayList(Sample) = .empty;
+        errdefer samples.deinit(self.allocator);
+
+        // Early return if count is 0
+        if (count) |limit| {
+            if (limit == 0) return samples;
+        }
+
+        var chunk = self.head;
+        while (chunk) |c| {
+            // If chunk is completely before the range, skip
+            if (c.last_ts < start_ts) {
+                chunk = c.next;
+                continue;
+            }
+            if (c.first_ts > end_ts) break;
+
+            // Decompress/deserialize chunk based on encoding
+            var chunk_samples = try self.decompressChunk(c);
+            defer chunk_samples.deinit(self.allocator);
+
+            // Add chunk samples to the result
+            for (chunk_samples.items) |sample| {
+                if (sample.timestamp >= start_ts and sample.timestamp <= end_ts) {
+                    try samples.append(self.allocator, sample);
+
+                    // Check if we've reached the count limit
+                    if (count) |limit| {
+                        if (samples.items.len >= limit) {
+                            return samples;
+                        }
+                    }
+                }
+            }
+
+            chunk = c.next;
+        }
+
+        return samples;
+    }
+
+    fn decompressChunk(self: *const TimeSeries, chunk: *const Chunk) !std.ArrayList(Sample) {
+        var samples: std.ArrayList(Sample) = .{};
+        errdefer samples.deinit(self.allocator);
+
+        // Check if this is the active tail chunk with unsealed data
+        const is_active_tail = chunk == self.tail and chunk.data.len == 0;
+
+        if (is_active_tail) {
+            // Active chunk: always read from uncompressed active_samples buffer
+            // This works for both DeltaXor and Uncompressed encodings because
+            // compression only happens during sealing
+            for (self.active_samples.items) |sample| {
+                try samples.append(self.allocator, sample);
+            }
+        } else {
+            // Read from sealed chunk data
+            switch (chunk.encoding) {
+                .DeltaXor => {
+                    // Use Gorilla decompressor (zero-copy, no allocation)
+                    var decompressor = ChunkDecompressor.init(chunk.data);
+                    defer decompressor.deinit();
+
+                    // Iterate based on sample count
+                    for (0..chunk.sample_count) |_| {
+                        const sample = try decompressor.next();
+                        try samples.append(self.allocator, .{
+                            .timestamp = sample.timestamp,
+                            .value = sample.value,
+                        });
+                    }
+                },
+                .Uncompressed => {
+                    // Deserialize binary format (16 bytes per sample)
+                    const num_samples = chunk.data.len / 16;
+                    for (0..num_samples) |i| {
+                        const offset = i * 16;
+                        const timestamp = std.mem.readInt(i64, chunk.data[offset..][0..8], .little);
+                        const value_bits = std.mem.readInt(u64, chunk.data[offset + 8 ..][0..8], .little);
+                        const value: f64 = @bitCast(value_bits);
+                        try samples.append(self.allocator, .{ .timestamp = timestamp, .value = value });
+                    }
+                },
+            }
+        }
+
+        return samples;
     }
 
     /// Alter time series properties

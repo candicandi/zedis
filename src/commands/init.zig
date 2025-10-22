@@ -451,11 +451,20 @@ pub fn initRegistry(allocator: Allocator) !CommandRegistry {
     });
 
     try registry.register(.{
-        .name = "TS.MGET",
-        .handler = .{ .store_handler = ts.ts_mget },
+        .name = "TS.ALTER",
+        .handler = .{ .store_handler = ts.ts_alter },
         .min_args = 2,
         .max_args = null,
-        .description = "Get last samples from multiple time series",
+        .description = "Alter time series properties",
+        .write_to_aof = true,
+    });
+
+    try registry.register(.{
+        .name = "TS.RANGE",
+        .handler = .{ .store_handler = ts.ts_range },
+        .min_args = 4,
+        .max_args = null,
+        .description = "Query a range of samples from a time series",
         .write_to_aof = false,
     });
 

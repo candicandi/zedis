@@ -74,6 +74,7 @@ pub const Client = struct {
         while (true) {
             // Parse the incoming command from the client's stream.
             var parser = Parser.init(self.allocator);
+
             var command = parser.parse(reader) catch |err| {
                 // If there's an error (like a closed connection), we stop handling this client.
                 if (err == error.EndOfStream) {

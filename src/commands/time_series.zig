@@ -8,7 +8,7 @@ const TimeSeries = ts_mod.TimeSeries;
 const Duplicate_Policy = ts_mod.Duplicate_Policy;
 const EncodingType = ts_mod.EncodingType;
 
-const eql = std.mem.eql;
+const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 
 /// Helper to write last sample in RESP format
 fn writeLastSample(writer: *std.Io.Writer, time_series: *TimeSeries) !void {
@@ -47,25 +47,25 @@ pub fn ts_create(writer: *std.Io.Writer, store: *Store, args: []const Value) !vo
     const key = args[1].asSlice();
     var retention_ms: u64 = 0;
     var encoding: ?[]const u8 = null;
-    var chunk_size: u16 = 4096;
+    var chunk_size: u16 = 100;
     var duplicate_policy: ?[]const u8 = null;
     var ignore_max_time_diff: ?u64 = null;
     var ignore_max_val_diff: ?f64 = null;
 
     for (args, 0..) |value, i| {
-        if (eql(u8, value.asSlice(), "RETENTION")) {
+        if (eqlIgnoreCase(value.asSlice(), "RETENTION")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             retention_ms = try args[i + 1].asU64();
-        } else if (eql(u8, value.asSlice(), "ENCODING")) {
+        } else if (eqlIgnoreCase(value.asSlice(), "ENCODING")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             encoding = args[i + 1].asSlice();
-        } else if (eql(u8, value.asSlice(), "CHUNK_SIZE")) {
+        } else if (eqlIgnoreCase(value.asSlice(), "CHUNK_SIZE")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             chunk_size = try args[i + 1].asU16();
-        } else if (eql(u8, value.asSlice(), "DUPLICATE_POLICY")) {
+        } else if (eqlIgnoreCase(value.asSlice(), "DUPLICATE_POLICY")) {
             if (i + 1 >= args.len) return error.SyntaxError;
             duplicate_policy = args[i + 1].asSlice();
-        } else if (eql(u8, value.asSlice(), "IGNORE")) {
+        } else if (eqlIgnoreCase(value.asSlice(), "IGNORE")) {
             if (i + 1 >= args.len or i + 2 >= args.len) return error.SyntaxError;
             ignore_max_time_diff = try args[i + 1].asU64();
             ignore_max_val_diff = try args[i + 2].asF64();
@@ -137,15 +137,15 @@ pub fn ts_alter(writer: *std.Io.Writer, store: *Store, args: []const Value) !voi
         var i: usize = 2;
         while (i < args.len) : (i += 1) {
             const arg = args[i].asSlice();
-            if (eql(u8, arg, "RETENTION")) {
+            if (eqlIgnoreCase(arg, "RETENTION")) {
                 if (i + 1 >= args.len) return error.SyntaxError;
                 retention_ms = try args[i + 1].asU64();
                 i += 1;
-            } else if (eql(u8, arg, "CHUNK_SIZE")) {
+            } else if (eqlIgnoreCase(arg, "CHUNK_SIZE")) {
                 if (i + 1 >= args.len) return error.SyntaxError;
                 chunk_size = try args[i + 1].asU16();
                 i += 1;
-            } else if (eql(u8, arg, "DUPLICATE_POLICY")) {
+            } else if (eqlIgnoreCase(arg, "DUPLICATE_POLICY")) {
                 if (i + 1 >= args.len) return error.SyntaxError;
                 duplicate_policy = .fromString(args[i + 1].asSlice());
                 i += 1;
@@ -159,23 +159,46 @@ pub fn ts_alter(writer: *std.Io.Writer, store: *Store, args: []const Value) !voi
     }
 }
 
-pub fn ts_mget(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
-    // args[1..] are the keys
-    const keys = args[1..];
+pub fn ts_range(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+    const key = args[1].asSlice();
 
-    // Write array length
-    try resp.writeListLen(writer, keys.len);
+    const ts = try store.getTimeSeries(key);
+    if (ts) |time_series| {
+        const start = args[2].asSlice();
+        const end = args[3].asSlice();
 
-    // For each key, get the last sample
-    for (keys) |key_value| {
-        const key = key_value.asSlice();
-        const ts = try store.getTimeSeries(key);
-
-        if (ts) |time_series| {
-            try writeLastSample(writer, time_series);
-        } else {
-            // Key doesn't exist - return null
-            try resp.writeNull(writer);
+        // Parse optional COUNT parameter
+        var count: ?usize = null;
+        var i: usize = 4;
+        while (i < args.len) : (i += 1) {
+            const arg_upper = args[i].asSlice();
+            // Check for COUNT keyword (case-insensitive comparison)
+            if (std.ascii.eqlIgnoreCase(arg_upper, "COUNT")) {
+                if (i + 1 >= args.len) {
+                    return error.SyntaxError;
+                }
+                i += 1;
+                const count_val = try args[i].asInt();
+                if (count_val <= 0) {
+                    return error.InvalidCount;
+                }
+                count = @intCast(count_val);
+            } else {
+                // Unknown parameter
+                return error.SyntaxError;
+            }
         }
+
+        var samples = try time_series.range(start, end, count);
+        defer samples.deinit(store.allocator);
+
+        try resp.writeListLen(writer, samples.items.len);
+        for (samples.items) |sample| {
+            try resp.writeListLen(writer, 2);
+            try resp.writeInt(writer, sample.timestamp);
+            try resp.writeDoubleBulkString(writer, sample.value);
+        }
+    } else {
+        return error.KeyNotFound;
     }
 }
