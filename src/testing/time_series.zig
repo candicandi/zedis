@@ -770,7 +770,7 @@ test "TS.RANGE returns samples from active unsealed chunk - Uncompressed" {
     try testing.expectEqual(@as(usize, 0), ts.tail.?.data.len); // No sealed data yet
 
     // Query range - should read from active buffer
-    var samples = try ts.range("-", "+", null);
+    var samples = try ts.range("-", "+", null, null);
     defer samples.deinit(allocator);
 
     try testing.expectEqual(@as(usize, 3), samples.items.len);
@@ -808,7 +808,7 @@ test "TS.RANGE can read from active unsealed chunk (hybrid approach)" {
     // Query range - with hybrid approach, active chunks are always readable
     // Active samples are kept uncompressed regardless of encoding setting
     // Compression only happens during chunk sealing
-    var samples = try ts.range("-", "+", null);
+    var samples = try ts.range("-", "+", null, null);
     defer samples.deinit(allocator);
 
     // Active chunk should return all 3 samples
@@ -842,7 +842,7 @@ test "TS.RANGE with COUNT parameter limits results" {
     }
 
     // Query with COUNT 5
-    var samples = try ts.range("-", "+", 5);
+    var samples = try ts.range("-", "+", 5, null);
     defer samples.deinit(allocator);
 
     try testing.expectEqual(@as(usize, 5), samples.items.len);
@@ -870,7 +870,7 @@ test "TS.RANGE with COUNT zero returns empty" {
     try ts.addSample(2000, 20.0);
 
     // COUNT 0 is not valid, but let's test the edge case
-    var samples = try ts.range("-", "+", 0);
+    var samples = try ts.range("-", "+", 0, null);
     defer samples.deinit(allocator);
 
     try testing.expectEqual(@as(usize, 0), samples.items.len);
@@ -895,7 +895,7 @@ test "TS.RANGE with COUNT larger than available samples returns all" {
     try ts.addSample(3000, 30.0);
 
     // Request 100 samples but only 3 exist
-    var samples = try ts.range("-", "+", 100);
+    var samples = try ts.range("-", "+", 100, null);
     defer samples.deinit(allocator);
 
     try testing.expectEqual(@as(usize, 3), samples.items.len);
@@ -922,7 +922,7 @@ test "TS.RANGE with COUNT across multiple chunks" {
     }
 
     // Query with COUNT 7 - should span across 3 chunks
-    var samples = try ts.range("-", "+", 7);
+    var samples = try ts.range("-", "+", 7, null);
     defer samples.deinit(allocator);
 
     try testing.expectEqual(@as(usize, 7), samples.items.len);
@@ -1016,7 +1016,7 @@ test "TS.RANGE with 5000 random samples using compressed encoding" {
     try testing.expectEqual(@as(u64, num_samples), ts.total_samples);
 
     // Fetch all samples using range query
-    var samples = try ts.range("-", "+", null);
+    var samples = try ts.range("-", "+", null, null);
     defer samples.deinit(allocator);
 
     // Verify we got all samples back
@@ -1038,7 +1038,7 @@ test "TS.RANGE with 5000 random samples using compressed encoding" {
     const end_str = try std.fmt.allocPrint(allocator, "{d}", .{end_ts});
     defer allocator.free(end_str);
 
-    var range_samples = try ts.range(start_str, end_str, null);
+    var range_samples = try ts.range(start_str, end_str, null, null);
     defer range_samples.deinit(allocator);
 
     // Should get samples from 1000 to 2000 inclusive (1001 samples)
@@ -1047,7 +1047,7 @@ test "TS.RANGE with 5000 random samples using compressed encoding" {
     try testing.expectEqual(end_ts, range_samples.items[range_samples.items.len - 1].timestamp);
 
     // Test range query with COUNT parameter
-    var limited_samples = try ts.range("-", "+", 500);
+    var limited_samples = try ts.range("-", "+", 500, null);
     defer limited_samples.deinit(allocator);
 
     try testing.expectEqual(@as(usize, 500), limited_samples.items.len);
@@ -1084,7 +1084,7 @@ test "TS.RANGE with 5000 random samples using uncompressed encoding" {
     try testing.expectEqual(@as(u64, num_samples), ts.total_samples);
 
     // Fetch all samples
-    var samples = try ts.range("-", "+", null);
+    var samples = try ts.range("-", "+", null, null);
     defer samples.deinit(allocator);
 
     try testing.expectEqual(@as(usize, num_samples), samples.items.len);
@@ -1095,4 +1095,561 @@ test "TS.RANGE with 5000 random samples using uncompressed encoding" {
         try testing.expectEqual(expected_ts, sample.timestamp);
         try testing.expect(sample.value >= 15.0 and sample.value <= 35.0);
     }
+}
+
+// Aggregation tests
+const AggregationType = @import("../time_series.zig").AggregationType;
+const Aggregation = @import("../time_series.zig").Aggregation;
+
+test "TS.RANGE with AVG aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Add samples with known values across time buckets
+    // Bucket 0-999: samples at 0, 500 with values 10, 20 (avg = 15)
+    // Bucket 1000-1999: samples at 1000, 1500 with values 30, 50 (avg = 40)
+    // Bucket 2000-2999: samples at 2000 with value 100 (avg = 100)
+    try ts.addSample(0, 10.0);
+    try ts.addSample(500, 20.0);
+    try ts.addSample(1000, 30.0);
+    try ts.addSample(1500, 50.0);
+    try ts.addSample(2000, 100.0);
+
+    const agg = Aggregation{
+        .agg_type = .AVG,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 3), samples.items.len);
+
+    // Bucket 0: avg(10, 20) = 15
+    try testing.expectEqual(@as(i64, 0), samples.items[0].timestamp);
+    try testing.expectEqual(@as(f64, 15.0), samples.items[0].value);
+
+    // Bucket 1000: avg(30, 50) = 40
+    try testing.expectEqual(@as(i64, 1000), samples.items[1].timestamp);
+    try testing.expectEqual(@as(f64, 40.0), samples.items[1].value);
+
+    // Bucket 2000: avg(100) = 100
+    try testing.expectEqual(@as(i64, 2000), samples.items[2].timestamp);
+    try testing.expectEqual(@as(f64, 100.0), samples.items[2].value);
+}
+
+test "TS.RANGE with SUM aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Add samples: bucket 0 (0-99): 5+10=15, bucket 100 (100-199): 20+30=50
+    try ts.addSample(10, 5.0);
+    try ts.addSample(50, 10.0);
+    try ts.addSample(110, 20.0);
+    try ts.addSample(150, 30.0);
+
+    const agg = Aggregation{
+        .agg_type = .SUM,
+        .time_bucket = 100,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), samples.items.len);
+    try testing.expectEqual(@as(i64, 0), samples.items[0].timestamp);
+    try testing.expectEqual(@as(f64, 15.0), samples.items[0].value);
+    try testing.expectEqual(@as(i64, 100), samples.items[1].timestamp);
+    try testing.expectEqual(@as(f64, 50.0), samples.items[1].value);
+}
+
+test "TS.RANGE with MIN aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: values 100, 50, 75 -> min = 50
+    // Bucket 1000: values 200, 150 -> min = 150
+    try ts.addSample(100, 100.0);
+    try ts.addSample(200, 50.0);
+    try ts.addSample(500, 75.0);
+    try ts.addSample(1000, 200.0);
+    try ts.addSample(1500, 150.0);
+
+    const agg = Aggregation{
+        .agg_type = .MIN,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), samples.items.len);
+    try testing.expectEqual(@as(f64, 50.0), samples.items[0].value);
+    try testing.expectEqual(@as(f64, 150.0), samples.items[1].value);
+}
+
+test "TS.RANGE with MAX aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: values 100, 50, 75 -> max = 100
+    // Bucket 1000: values 200, 150 -> max = 200
+    try ts.addSample(100, 100.0);
+    try ts.addSample(200, 50.0);
+    try ts.addSample(500, 75.0);
+    try ts.addSample(1000, 200.0);
+    try ts.addSample(1500, 150.0);
+
+    const agg = Aggregation{
+        .agg_type = .MAX,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), samples.items.len);
+    try testing.expectEqual(@as(f64, 100.0), samples.items[0].value);
+    try testing.expectEqual(@as(f64, 200.0), samples.items[1].value);
+}
+
+test "TS.RANGE with COUNT aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: 3 samples
+    // Bucket 1000: 2 samples
+    // Bucket 2000: 1 sample
+    try ts.addSample(100, 1.0);
+    try ts.addSample(200, 2.0);
+    try ts.addSample(500, 3.0);
+    try ts.addSample(1000, 4.0);
+    try ts.addSample(1500, 5.0);
+    try ts.addSample(2000, 6.0);
+
+    const agg = Aggregation{
+        .agg_type = .COUNT,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 3), samples.items.len);
+    try testing.expectEqual(@as(f64, 3.0), samples.items[0].value);
+    try testing.expectEqual(@as(f64, 2.0), samples.items[1].value);
+    try testing.expectEqual(@as(f64, 1.0), samples.items[2].value);
+}
+
+test "TS.RANGE with FIRST aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: first = 10
+    // Bucket 1000: first = 30
+    try ts.addSample(100, 10.0);
+    try ts.addSample(200, 20.0);
+    try ts.addSample(1000, 30.0);
+    try ts.addSample(1500, 40.0);
+
+    const agg = Aggregation{
+        .agg_type = .FIRST,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), samples.items.len);
+    try testing.expectEqual(@as(f64, 10.0), samples.items[0].value);
+    try testing.expectEqual(@as(f64, 30.0), samples.items[1].value);
+}
+
+test "TS.RANGE with LAST aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: last = 20
+    // Bucket 1000: last = 40
+    try ts.addSample(100, 10.0);
+    try ts.addSample(200, 20.0);
+    try ts.addSample(1000, 30.0);
+    try ts.addSample(1500, 40.0);
+
+    const agg = Aggregation{
+        .agg_type = .LAST,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), samples.items.len);
+    try testing.expectEqual(@as(f64, 20.0), samples.items[0].value);
+    try testing.expectEqual(@as(f64, 40.0), samples.items[1].value);
+}
+
+test "TS.RANGE with RANGE aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: values 10, 50, 30 -> range = 50 - 10 = 40
+    // Bucket 1000: values 100, 200 -> range = 200 - 100 = 100
+    try ts.addSample(100, 10.0);
+    try ts.addSample(200, 50.0);
+    try ts.addSample(500, 30.0);
+    try ts.addSample(1000, 100.0);
+    try ts.addSample(1500, 200.0);
+
+    const agg = Aggregation{
+        .agg_type = .RANGE,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), samples.items.len);
+    try testing.expectEqual(@as(f64, 40.0), samples.items[0].value);
+    try testing.expectEqual(@as(f64, 100.0), samples.items[1].value);
+}
+
+test "TS.RANGE with STD.P (population standard deviation) aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: values 10, 20, 30 -> mean = 20, variance = ((10-20)^2 + (20-20)^2 + (30-20)^2)/3 = 66.666.../3 ≈ 66.67/3, std = sqrt(66.67/3)
+    try ts.addSample(0, 10.0);
+    try ts.addSample(100, 20.0);
+    try ts.addSample(200, 30.0);
+
+    const agg = Aggregation{
+        .agg_type = .STD_P,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 1), samples.items.len);
+
+    // Expected: sqrt(((10-20)^2 + (20-20)^2 + (30-20)^2)/3) = sqrt((100 + 0 + 100)/3) = sqrt(66.666...) ≈ 8.165
+    const expected_std = @sqrt(200.0 / 3.0);
+    try testing.expectApproxEqAbs(expected_std, samples.items[0].value, 0.001);
+}
+
+test "TS.RANGE with STD.S (sample standard deviation) aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: values 10, 20, 30 -> sample std uses n-1 in denominator
+    try ts.addSample(0, 10.0);
+    try ts.addSample(100, 20.0);
+    try ts.addSample(200, 30.0);
+
+    const agg = Aggregation{
+        .agg_type = .STD_S,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 1), samples.items.len);
+
+    // Expected: sqrt(((10-20)^2 + (20-20)^2 + (30-20)^2)/2) = sqrt((100 + 0 + 100)/2) = sqrt(100) = 10
+    try testing.expectEqual(@as(f64, 10.0), samples.items[0].value);
+}
+
+test "TS.RANGE with VAR.P (population variance) aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: values 10, 20, 30
+    try ts.addSample(0, 10.0);
+    try ts.addSample(100, 20.0);
+    try ts.addSample(200, 30.0);
+
+    const agg = Aggregation{
+        .agg_type = .VAR_P,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 1), samples.items.len);
+
+    // Expected: ((10-20)^2 + (20-20)^2 + (30-20)^2)/3 = 200/3 ≈ 66.666...
+    const expected_var = 200.0 / 3.0;
+    try testing.expectApproxEqAbs(expected_var, samples.items[0].value, 0.001);
+}
+
+test "TS.RANGE with VAR.S (sample variance) aggregation" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Bucket 0: values 10, 20, 30
+    try ts.addSample(0, 10.0);
+    try ts.addSample(100, 20.0);
+    try ts.addSample(200, 30.0);
+
+    const agg = Aggregation{
+        .agg_type = .VAR_S,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 1), samples.items.len);
+
+    // Expected: ((10-20)^2 + (20-20)^2 + (30-20)^2)/2 = 200/2 = 100
+    try testing.expectEqual(@as(f64, 100.0), samples.items[0].value);
+}
+
+test "TS.RANGE aggregation with COUNT limit" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        100,
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Create 10 buckets with 1 sample each
+    var i: i64 = 0;
+    while (i < 10) : (i += 1) {
+        try ts.addSample(i * 1000, @as(f64, @floatFromInt(i)));
+    }
+
+    const agg = Aggregation{
+        .agg_type = .AVG,
+        .time_bucket = 1000,
+    };
+
+    // Request only first 5 buckets
+    var samples = try ts.range("-", "+", 5, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 5), samples.items.len);
+    try testing.expectEqual(@as(i64, 0), samples.items[0].timestamp);
+    try testing.expectEqual(@as(i64, 4000), samples.items[4].timestamp);
+}
+
+test "TS.RANGE aggregation across multiple chunks" {
+    const allocator = testing.allocator;
+
+    var ts = TimeSeries.init(
+        allocator,
+        0,
+        .BLOCK,
+        5, // Small chunks to force multiple
+        .Uncompressed,
+        0,
+        0.0,
+    );
+    defer ts.deinit();
+
+    // Add samples across multiple chunks
+    // Bucket 0: 4 samples
+    // Bucket 1000: 4 samples
+    try ts.addSample(0, 10.0);
+    try ts.addSample(100, 20.0);
+    try ts.addSample(200, 30.0);
+    try ts.addSample(300, 40.0);
+    try ts.addSample(1000, 50.0);
+    try ts.addSample(1100, 60.0);
+    try ts.addSample(1200, 70.0);
+    try ts.addSample(1300, 80.0);
+
+    const agg = Aggregation{
+        .agg_type = .SUM,
+        .time_bucket = 1000,
+    };
+
+    var samples = try ts.range("-", "+", null, agg);
+    defer samples.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), samples.items.len);
+    try testing.expectEqual(@as(f64, 100.0), samples.items[0].value); // 10+20+30+40
+    try testing.expectEqual(@as(f64, 260.0), samples.items[1].value); // 50+60+70+80
+}
+
+test "TS.RANGE command with aggregation parameter" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator, 4096);
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    // Create time series
+    const create_args = [_]Value{
+        .{ .data = "TS.CREATE" },
+        .{ .data = "myts" },
+    };
+    try ts_commands.ts_create(&writer, &store, &create_args);
+
+    // Add samples across multiple buckets
+    const timestamps = [_][]const u8{ "0", "500", "1000", "1500", "2000", "2500" };
+    const values = [_][]const u8{ "10", "20", "30", "40", "50", "60" };
+
+    for (timestamps, values) |ts_str, val_str| {
+        buffer = std.mem.zeroes([4096]u8);
+        writer = std.Io.Writer.fixed(&buffer);
+        const add_args = [_]Value{
+            .{ .data = "TS.ADD" },
+            .{ .data = "myts" },
+            .{ .data = ts_str },
+            .{ .data = val_str },
+        };
+        try ts_commands.ts_add(&writer, &store, &add_args);
+    }
+
+    // Range with AVG aggregation, bucket size 1000
+    buffer = std.mem.zeroes([4096]u8);
+    writer = std.Io.Writer.fixed(&buffer);
+    const range_args = [_]Value{
+        .{ .data = "TS.RANGE" },
+        .{ .data = "myts" },
+        .{ .data = "-" },
+        .{ .data = "+" },
+        .{ .data = "AGGREGATION" },
+        .{ .data = "AVG" },
+        .{ .data = "1000" },
+    };
+    try ts_commands.ts_range(&writer, &store, &range_args);
+
+    const output = writer.buffered();
+    // Should return 3 buckets: [0-999], [1000-1999], [2000-2999]
+    try testing.expect(std.mem.startsWith(u8, output, "*3\r\n"));
 }

@@ -7,11 +7,48 @@ const ChunkCompressor = gorilla.ChunkCompressor;
 const ChunkDecompressor = gorilla.ChunkDecompressor;
 const ValueDecompressor = gorilla.ValueDecompressor;
 
+const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 const eql = std.mem.eql;
 
 const Sample = struct {
     timestamp: i64,
     value: f64,
+};
+
+pub const AggregationType = enum {
+    AVG,
+    SUM,
+    MIN,
+    MAX,
+    RANGE,
+    COUNT,
+    FIRST,
+    LAST,
+    STD_P,
+    STD_S,
+    VAR_P,
+    VAR_S,
+
+    pub fn fromString(s: []const u8) !AggregationType {
+        if (eqlIgnoreCase(s, "AVG")) return .AVG;
+        if (eqlIgnoreCase(s, "SUM")) return .SUM;
+        if (eqlIgnoreCase(s, "MIN")) return .MIN;
+        if (eqlIgnoreCase(s, "MAX")) return .MAX;
+        if (eqlIgnoreCase(s, "COUNT")) return .COUNT;
+        if (eqlIgnoreCase(s, "RANGE")) return .RANGE;
+        if (eqlIgnoreCase(s, "FIRST")) return .FIRST;
+        if (eqlIgnoreCase(s, "LAST")) return .LAST;
+        if (eqlIgnoreCase(s, "STD.P")) return .STD_P;
+        if (eqlIgnoreCase(s, "STD.S")) return .STD_S;
+        if (eqlIgnoreCase(s, "VAR.P")) return .VAR_P;
+        if (eqlIgnoreCase(s, "VAR.S")) return .VAR_S;
+        return error.SyntaxError;
+    }
+};
+
+pub const Aggregation = struct {
+    agg_type: AggregationType,
+    time_bucket: u64,
 };
 
 pub const Duplicate_Policy = enum {
@@ -23,12 +60,12 @@ pub const Duplicate_Policy = enum {
     SUM,
 
     pub fn fromString(s: []const u8) ?Duplicate_Policy {
-        if (eql(u8, s, "BLOCK")) return .BLOCK;
-        if (eql(u8, s, "FIRST")) return .FIRST;
-        if (eql(u8, s, "LAST")) return .LAST;
-        if (eql(u8, s, "MIN")) return .MIN;
-        if (eql(u8, s, "MAX")) return .MAX;
-        if (eql(u8, s, "SUM")) return .SUM;
+        if (eqlIgnoreCase(s, "BLOCK")) return .BLOCK;
+        if (eqlIgnoreCase(s, "FIRST")) return .FIRST;
+        if (eqlIgnoreCase(s, "LAST")) return .LAST;
+        if (eqlIgnoreCase(s, "MIN")) return .MIN;
+        if (eqlIgnoreCase(s, "MAX")) return .MAX;
+        if (eqlIgnoreCase(s, "SUM")) return .SUM;
         return null;
     }
 };
@@ -38,8 +75,8 @@ pub const EncodingType = enum(u8) {
     DeltaXor,
 
     pub fn fromString(s: []const u8) ?EncodingType {
-        if (eql(u8, s, "UNCOMPRESSED")) return .Uncompressed;
-        if (eql(u8, s, "COMPRESSED")) return .DeltaXor;
+        if (eqlIgnoreCase(s, "UNCOMPRESSED")) return .Uncompressed;
+        if (eqlIgnoreCase(s, "COMPRESSED")) return .DeltaXor;
         return null;
     }
 };
@@ -318,7 +355,7 @@ pub const TimeSeries = struct {
         return 0.0;
     }
 
-    pub fn range(self: *const TimeSeries, start: []const u8, end: []const u8, count: ?usize) !std.ArrayList(Sample) {
+    pub fn range(self: *const TimeSeries, start: []const u8, end: []const u8, count: ?usize, aggregation: ?Aggregation) !std.ArrayList(Sample) {
         // start and end can be special values: "-" for negative infinity, "+" for positive infinity
         const start_ts: i64 = if (eql(u8, start, "-")) std.math.minInt(i64) else try std.fmt.parseInt(i64, start, 10);
         const end_ts: i64 = if (eql(u8, end, "+")) std.math.maxInt(i64) else try std.fmt.parseInt(i64, end, 10);
@@ -349,10 +386,12 @@ pub const TimeSeries = struct {
                 if (sample.timestamp >= start_ts and sample.timestamp <= end_ts) {
                     try samples.append(self.allocator, sample);
 
-                    // Check if we've reached the count limit
-                    if (count) |limit| {
-                        if (samples.items.len >= limit) {
-                            return samples;
+                    // Check if we've reached the count limit (only if no aggregation)
+                    if (aggregation == null) {
+                        if (count) |limit| {
+                            if (samples.items.len >= limit) {
+                                return samples;
+                            }
                         }
                     }
                 }
@@ -361,7 +400,180 @@ pub const TimeSeries = struct {
             chunk = c.next;
         }
 
+        // Apply aggregation if specified
+        if (aggregation) |agg| {
+            return try self.applyAggregation(samples, agg, count);
+        }
+
         return samples;
+    }
+
+    fn applyAggregation(self: TimeSeries, mut_samples: std.ArrayList(Sample), aggregation: Aggregation, count: ?usize) !std.ArrayList(Sample) {
+        var samples = mut_samples;
+        var aggregated: std.ArrayList(Sample) = .empty;
+        errdefer aggregated.deinit(self.allocator);
+        if (samples.items.len == 0) return aggregated;
+
+        // Group samples into time buckets
+        const bucket_size = @as(i64, @intCast(aggregation.time_bucket));
+        var current_bucket: ?i64 = null;
+        var bucket_samples: std.ArrayList(f64) = .empty;
+        defer bucket_samples.deinit(self.allocator);
+
+        for (samples.items) |sample| {
+            const bucket_ts = @divFloor(sample.timestamp, bucket_size) * bucket_size;
+
+            // If we're in a new bucket, process the previous one
+            if (current_bucket) |prev_bucket| {
+                if (bucket_ts != prev_bucket) {
+                    // Compute aggregation for previous bucket
+                    if (bucket_samples.items.len > 0) {
+                        const agg_value = try computeAggregation(bucket_samples.items, aggregation.agg_type);
+                        try aggregated.append(self.allocator, .{
+                            .timestamp = prev_bucket,
+                            .value = agg_value,
+                        });
+
+                        // Check count limit
+                        if (count) |limit| {
+                            if (aggregated.items.len >= limit) {
+                                // Clean up original samples before returning
+                                samples.deinit(self.allocator);
+                                return aggregated;
+                            }
+                        }
+                    }
+                    bucket_samples.clearRetainingCapacity();
+                }
+            }
+
+            current_bucket = bucket_ts;
+            try bucket_samples.append(self.allocator, sample.value);
+        }
+
+        // Process the last bucket
+        if (current_bucket != null and bucket_samples.items.len > 0) {
+            const agg_value = try computeAggregation(bucket_samples.items, aggregation.agg_type);
+            try aggregated.append(self.allocator, .{
+                .timestamp = current_bucket.?,
+                .value = agg_value,
+            });
+        }
+
+        // Clean up original samples
+        samples.deinit(self.allocator);
+
+        return aggregated;
+    }
+
+    /// Compute aggregation value for a set of values
+    fn computeAggregation(values: []const f64, agg_type: AggregationType) !f64 {
+        if (values.len == 0) return 0.0;
+
+        switch (agg_type) {
+            .AVG => {
+                var sum: f64 = 0.0;
+                for (values) |v| sum += v;
+                return sum / @as(f64, @floatFromInt(values.len));
+            },
+            .SUM => {
+                var sum: f64 = 0.0;
+                for (values) |v| sum += v;
+                return sum;
+            },
+            .MIN => {
+                var min = values[0];
+                for (values[1..]) |v| {
+                    if (v < min) min = v;
+                }
+                return min;
+            },
+            .MAX => {
+                var max = values[0];
+                for (values[1..]) |v| {
+                    if (v > max) max = v;
+                }
+                return max;
+            },
+            .RANGE => {
+                var min = values[0];
+                var max = values[0];
+                for (values[1..]) |v| {
+                    if (v < min) min = v;
+                    if (v > max) max = v;
+                }
+                return max - min;
+            },
+            .COUNT => {
+                return @floatFromInt(values.len);
+            },
+            .FIRST => {
+                return values[0];
+            },
+            .LAST => {
+                return values[values.len - 1];
+            },
+            .STD_P => {
+                // Population standard deviation
+                const mean = blk: {
+                    var sum: f64 = 0.0;
+                    for (values) |v| sum += v;
+                    break :blk sum / @as(f64, @floatFromInt(values.len));
+                };
+                var variance: f64 = 0.0;
+                for (values) |v| {
+                    const diff = v - mean;
+                    variance += diff * diff;
+                }
+                variance /= @as(f64, @floatFromInt(values.len));
+                return @sqrt(variance);
+            },
+            .STD_S => {
+                // Sample standard deviation
+                if (values.len <= 1) return 0.0;
+                const mean = blk: {
+                    var sum: f64 = 0.0;
+                    for (values) |v| sum += v;
+                    break :blk sum / @as(f64, @floatFromInt(values.len));
+                };
+                var variance: f64 = 0.0;
+                for (values) |v| {
+                    const diff = v - mean;
+                    variance += diff * diff;
+                }
+                variance /= @as(f64, @floatFromInt(values.len - 1));
+                return @sqrt(variance);
+            },
+            .VAR_P => {
+                // Population variance
+                const mean = blk: {
+                    var sum: f64 = 0.0;
+                    for (values) |v| sum += v;
+                    break :blk sum / @as(f64, @floatFromInt(values.len));
+                };
+                var variance: f64 = 0.0;
+                for (values) |v| {
+                    const diff = v - mean;
+                    variance += diff * diff;
+                }
+                return variance / @as(f64, @floatFromInt(values.len));
+            },
+            .VAR_S => {
+                // Sample variance
+                if (values.len <= 1) return 0.0;
+                const mean = blk: {
+                    var sum: f64 = 0.0;
+                    for (values) |v| sum += v;
+                    break :blk sum / @as(f64, @floatFromInt(values.len));
+                };
+                var variance: f64 = 0.0;
+                for (values) |v| {
+                    const diff = v - mean;
+                    variance += diff * diff;
+                }
+                return variance / @as(f64, @floatFromInt(values.len - 1));
+            },
+        }
     }
 
     fn decompressChunk(self: *const TimeSeries, chunk: *const Chunk) !std.ArrayList(Sample) {

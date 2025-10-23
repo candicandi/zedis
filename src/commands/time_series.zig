@@ -7,6 +7,8 @@ const ts_mod = @import("../time_series.zig");
 const TimeSeries = ts_mod.TimeSeries;
 const Duplicate_Policy = ts_mod.Duplicate_Policy;
 const EncodingType = ts_mod.EncodingType;
+const Aggregation = ts_mod.Aggregation;
+const AggregationType = ts_mod.AggregationType;
 
 const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 
@@ -167,12 +169,13 @@ pub fn ts_range(writer: *std.Io.Writer, store: *Store, args: []const Value) !voi
         const start = args[2].asSlice();
         const end = args[3].asSlice();
 
-        // Parse optional COUNT parameter
+        // Parse optional parameters
         var count: ?usize = null;
+        var aggregation: ?Aggregation = null;
+
         var i: usize = 4;
         while (i < args.len) : (i += 1) {
             const arg_upper = args[i].asSlice();
-            // Check for COUNT keyword (case-insensitive comparison)
             if (std.ascii.eqlIgnoreCase(arg_upper, "COUNT")) {
                 if (i + 1 >= args.len) {
                     return error.SyntaxError;
@@ -183,13 +186,28 @@ pub fn ts_range(writer: *std.Io.Writer, store: *Store, args: []const Value) !voi
                     return error.InvalidCount;
                 }
                 count = @intCast(count_val);
+            } else if (std.ascii.eqlIgnoreCase(arg_upper, "AGGREGATION")) {
+                if (i + 2 >= args.len) {
+                    return error.SyntaxError;
+                }
+
+                i += 1;
+                const agg_type_str = args[i].asSlice();
+                const aggregation_type = try AggregationType.fromString(agg_type_str);
+                i += 1;
+                const aggregation_time_bucket = try args[i].asU64();
+
+                aggregation = .{
+                    .agg_type = aggregation_type,
+                    .time_bucket = aggregation_time_bucket,
+                };
             } else {
                 // Unknown parameter
                 return error.SyntaxError;
             }
         }
 
-        var samples = try time_series.range(start, end, count);
+        var samples = try time_series.range(start, end, count, aggregation);
         defer samples.deinit(store.allocator);
 
         try resp.writeListLen(writer, samples.items.len);
