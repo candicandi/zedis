@@ -153,6 +153,7 @@ pub const Config = struct {
     initial_capacity: usize = 8192, // Initial hash map capacity for Store (reduces early rehashing)
     eviction_policy: EvictionPolicy = .allkeys_lru, // LRU eviction policy
     requirepass: ?[]const u8 = null, // Password authentication (null = disabled)
+    rdb_write_buffer_size: usize = 256 * 1024, // 256KB buffer for RDB writes (optimal SSD throughput)
 
     // Computed constants (calculated from other fields)
     pub fn clientPoolSize(self: Config) usize {
@@ -311,6 +312,8 @@ fn parseConfigLine(config: *Config, allocator: std.mem.Allocator, key: []const u
         }
     } else if (eql(u8, key, "requirepass")) {
         config.requirepass = try allocator.dupe(u8, trimmed_value);
+    } else if (eql(u8, key, "rdb-write-buffer-size")) {
+        config.rdb_write_buffer_size = try parseMemorySize(trimmed_value);
     }
 }
 
