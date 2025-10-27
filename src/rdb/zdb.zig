@@ -6,7 +6,6 @@ const ZedisValue = storeModule.ZedisValue;
 const ValueType = storeModule.ValueType;
 const ZedisList = @import("../list.zig").ZedisList;
 const ZedisListNode = @import("../list.zig").ZedisListNode;
-const WriterCrc = @import("./WriterCrc.zig");
 const Config = @import("../config.zig").Config;
 const fs = std.fs;
 const eql = std.mem.eql;
@@ -35,11 +34,10 @@ pub const RdbError = RdbWriteError || std.fs.File.WriteError || error{WriteFaile
 pub const Writer = struct {
     allocator: std.mem.Allocator,
     buffer: []u8,
-    crc_buffer: []u8,
     file: std.fs.File,
-    file_writer: *std.fs.File.Writer,
+    buffered_writer: std.fs.File.Writer,
     store: *Store,
-    writer_crc: WriterCrc,
+    checksum: std.hash.crc.Crc64Redis,
 
     fn mapToOpCode(val: ZedisValue) u8 {
         return switch (val) {
@@ -49,6 +47,28 @@ pub const Writer = struct {
         };
     }
 
+    // Helper functions to write data and update CRC checksum
+    inline fn writeByte(self: *Writer, byte: u8) !void {
+        self.checksum.update(&.{byte});
+        try self.buffered_writer.interface.writeByte(byte);
+    }
+
+    inline fn writeInt(self: *Writer, comptime T: type, value: T, endian: std.builtin.Endian) !void {
+        var buf: [@sizeOf(T)]u8 = undefined;
+        std.mem.writeInt(T, &buf, value, endian);
+        self.checksum.update(&buf);
+        try self.buffered_writer.interface.writeAll(&buf);
+    }
+
+    inline fn writeAll(self: *Writer, bytes: []const u8) !void {
+        self.checksum.update(bytes);
+        try self.buffered_writer.interface.writeAll(bytes);
+    }
+
+    inline fn flush(self: *Writer) !void {
+        try self.buffered_writer.interface.flush();
+    }
+
     pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8, config: Config) !Writer {
         fs.cwd().deleteFile(fileName) catch |err| switch (err) {
             error.FileNotFound => {},
@@ -56,39 +76,26 @@ pub const Writer = struct {
         };
         const file = try std.fs.cwd().createFile(fileName, .{ .truncate = true });
 
-        // Allocate buffers using configured size (default 256KB for optimal SSD throughput)
+        // Allocate buffer using configured size (default 256KB for optimal SSD throughput)
         const buffer = try allocator.alloc(u8, config.rdb_write_buffer_size);
         errdefer allocator.free(buffer);
 
-        const crc_buffer = try allocator.alloc(u8, config.rdb_write_buffer_size);
-        errdefer allocator.free(crc_buffer);
-
-        // Allocate file_writer on heap so its address doesn't change
-        const file_writer = try allocator.create(std.fs.File.Writer);
-        errdefer allocator.destroy(file_writer);
-
-        file_writer.* = file.writer(buffer);
-
-        // Now initialize WriterCrc with a pointer to the heap-allocated file_writer
-        const writer_crc = WriterCrc.init(&file_writer.interface, crc_buffer);
+        const buffered_writer = file.writer(buffer);
 
         return .{
             .allocator = allocator,
             .buffer = buffer,
-            .crc_buffer = crc_buffer,
             .file = file,
-            .file_writer = file_writer,
+            .buffered_writer = buffered_writer,
             .store = store,
-            .writer_crc = writer_crc,
+            .checksum = std.hash.crc.Crc64Redis.init(),
         };
     }
 
     pub fn deinit(self: *Writer) void {
-        _ = self.writer_crc.writer().flush() catch {};
+        _ = self.flush() catch {};
         self.file.close();
         self.allocator.free(self.buffer);
-        self.allocator.free(self.crc_buffer);
-        self.allocator.destroy(self.file_writer);
     }
 
     pub fn writeFile(self: *Writer) !void {
@@ -96,35 +103,34 @@ pub const Writer = struct {
         try self.writeCache();
         try self.writeEndOfFile();
 
-        try self.writer_crc.writer().flush();
-        try self.file.sync();
+        try self.flush();
     }
 
     fn writeHeader(self: *Writer) !void {
         try self.writeAuxFields();
 
-        try self.writer_crc.writer().writeByte(OPCODE_SELECT_DB);
+        try self.writeByte(OPCODE_SELECT_DB);
         try self.writeLength(0x00);
 
-        try self.writer_crc.writer().writeByte(OPCODE_RESIZE_DB);
+        try self.writeByte(OPCODE_RESIZE_DB);
         try self.writeLength(self.store.size());
         // TODO Write the size of the expiry hash table
         try self.writeLength(0);
     }
 
     fn writeEndOfFile(self: *Writer) !void {
-        try self.writer_crc.writer().writeByte(OPCODE_EOF);
+        try self.writeByte(OPCODE_EOF);
 
         // Get the accumulated checksum from all writes
-        const checksum = self.writer_crc.getChecksum();
+        const checksum = self.checksum.final();
 
-        // Write checksum (note: this write is NOT included in checksum calculation)
-        try self.writer_crc.writer().writeInt(u64, checksum, .little);
+        // Write checksum directly (not included in checksum calculation)
+        try self.buffered_writer.interface.writeInt(u64, checksum, .little);
     }
 
     fn writeAuxFields(self: *Writer) !void {
-        _ = try self.writer_crc.writer().write("REDIS");
-        _ = try self.writer_crc.writer().write("0012");
+        try self.writeAll("REDIS");
+        try self.writeAll("0012");
 
         try self.writeMetadata("redis-ver", .{ .string = "255.255.255" });
 
@@ -143,7 +149,7 @@ pub const Writer = struct {
 
     fn writeMetadata(self: *Writer, key: []const u8, value: ZedisValue) !void {
         // 0xFA indicates auxiliary field; we encode key then value as length-prefixed strings.
-        try self.writer_crc.writer().writeByte(0xFA);
+        try self.writeByte(0xFA);
         try self.genericWrite(.{ .string = key });
         try self.genericWrite(value);
     }
@@ -152,19 +158,19 @@ pub const Writer = struct {
         var it = self.store.map.iterator();
         while (it.next()) |entry| {
             if (self.store.getTtl(entry.key_ptr.*)) |expiry| {
-                try self.writer_crc.writer().writeByte(OPCODE_EXPIRE_TIME_MS);
-                try self.writer_crc.writer().writeInt(i64, expiry, .little);
+                try self.writeByte(OPCODE_EXPIRE_TIME_MS);
+                try self.writeInt(i64, expiry, .little);
             }
 
             const value = entry.value_ptr.value;
 
             const op_code = Writer.mapToOpCode(value);
-            try self.writer_crc.writer().writeByte(op_code);
+            try self.writeByte(op_code);
 
             try self.writeString(entry.key_ptr.*);
 
             switch (entry.value_ptr.*.value) {
-                .int => |i| try self.writeInt(i),
+                .int => |i| try self.writeIntValue(i),
                 .string => |s| try self.writeString(s),
                 .short_string => |ss| try self.writeString(ss.asSlice()),
                 .list => |list| try self.writeList(@constCast(&list)),
@@ -176,24 +182,24 @@ pub const Writer = struct {
 
     fn writeLength(self: *Writer, len: u64) RdbError!void {
         if (len <= 63) { // 6-bit
-            try self.writer_crc.writer().writeByte(@as(u8, @truncate(len)));
+            try self.writeByte(@as(u8, @truncate(len)));
         } else if (len <= 16383) { // 14-bit
             const first_byte = 0b01000000 | @as(u8, @truncate(len >> 8));
             const second_byte = @as(u8, @truncate(len));
-            try self.writer_crc.writer().writeByte(first_byte);
-            try self.writer_crc.writer().writeByte(second_byte);
+            try self.writeByte(first_byte);
+            try self.writeByte(second_byte);
         } else if (len <= 0xFFFFFFFF) { // 32-bit
-            try self.writer_crc.writer().writeByte(LEN_PREFIX_32_INT);
-            try self.writer_crc.writer().writeInt(u32, @intCast(len), .big);
+            try self.writeByte(LEN_PREFIX_32_INT);
+            try self.writeInt(u32, @intCast(len), .big);
         } else { // 64-bit
-            try self.writer_crc.writer().writeByte(LEN_PREFIX_64_INT);
-            try self.writer_crc.writer().writeInt(u64, len, .big);
+            try self.writeByte(LEN_PREFIX_64_INT);
+            try self.writeInt(u64, len, .big);
         }
     }
 
     fn writeString(self: *Writer, str: []const u8) RdbError!void {
         try self.writeLength(str.len);
-        try self.writer_crc.writer().writeAll(str);
+        try self.writeAll(str);
     }
 
     fn writeList(self: *Writer, list: *ZedisList) RdbError!void {
@@ -206,7 +212,7 @@ pub const Writer = struct {
             const value = list_node.data;
 
             switch (value) {
-                .int => |i| try self.writeInt(i),
+                .int => |i| try self.writeIntValue(i),
                 .string => |s| try self.writeString(s),
             }
 
@@ -214,19 +220,19 @@ pub const Writer = struct {
         }
     }
 
-    fn writeInt(self: *Writer, number: i64) RdbError!void {
+    fn writeIntValue(self: *Writer, number: i64) RdbError!void {
         if (number >= std.math.minInt(i8) and number <= std.math.maxInt(i8)) {
             // Can fit in i8
-            try self.writer_crc.writer().writeByte(INT_PREFIX_8_BITS);
-            try self.writer_crc.writer().writeInt(i8, @intCast(number), .little);
+            try self.writeByte(INT_PREFIX_8_BITS);
+            try self.writeInt(i8, @intCast(number), .little);
         } else if (number >= std.math.minInt(i16) and number <= std.math.maxInt(i16)) {
             // Can fit in i16
-            try self.writer_crc.writer().writeByte(INT_PREFIX_16_BITS);
-            try self.writer_crc.writer().writeInt(i16, @intCast(number), .little);
+            try self.writeByte(INT_PREFIX_16_BITS);
+            try self.writeInt(i16, @intCast(number), .little);
         } else if (number >= std.math.minInt(i32) and number <= std.math.maxInt(i32)) {
             // Can fit in i32
-            try self.writer_crc.writer().writeByte(INT_PREFIX_32_BITS);
-            try self.writer_crc.writer().writeInt(i32, @intCast(number), .little);
+            try self.writeByte(INT_PREFIX_32_BITS);
+            try self.writeInt(i32, @intCast(number), .little);
         } else {
             // Fallback for larger numbers (i64) or any number that doesn't fit
             // the above: write as a length-prefixed string.
@@ -238,7 +244,7 @@ pub const Writer = struct {
 
     fn genericWrite(self: *Writer, payload: ZedisValue) RdbError!void {
         switch (payload) {
-            .int => |number| try self.writeInt(number),
+            .int => |number| try self.writeIntValue(number),
             .string => |str| try self.writeString(str),
             .short_string => |ss| try self.writeString(ss.asSlice()),
             .list => |list| try self.writeList(@constCast(&list)),
@@ -494,7 +500,7 @@ test "ZDB writeString writes correct format" {
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
     try zdb.genericWrite(.{ .string = "test" });
-    try zdb.writer_crc.writer().flush();
+    try zdb.flush();
     try zdb.file.sync();
 
     const file_content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);
@@ -519,7 +525,7 @@ test "ZDB writeMetadata writes correct format" {
     const key = "test";
     const value = "random";
     try zdb.writeMetadata(key, .{ .string = value });
-    try zdb.writer_crc.writer().flush();
+    try zdb.flush();
     try zdb.file.sync();
 
     const file_content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);
