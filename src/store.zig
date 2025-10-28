@@ -94,7 +94,7 @@ pub const Store = struct {
     expiration_map: std.StringHashMapUnmanaged(i64),
 
     // Map of interned strings
-    interned_strings: std.StringHashMapUnmanaged([]const u8),
+    interned_strings: std.StringHashMapUnmanaged(void),
 
     // Hybrid memory pools for different string sizes
     small_pool: SafeMemoryPool, // 32 bytes - for keys
@@ -179,9 +179,8 @@ pub const Store = struct {
         if (!gop.found_existing) {
             const owned_str = try self.dupeString(str);
             gop.key_ptr.* = owned_str;
-            gop.value_ptr.* = owned_str;
         }
-        return gop.value_ptr.*;
+        return gop.key_ptr.*;
     }
 
     /// Smart allocation using memory pools based on size
