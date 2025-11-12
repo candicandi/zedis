@@ -18,9 +18,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link libc for C allocator (best performance)
-    exe.linkLibC();
-
     // This makes the standard library available to our project.
     b.installArtifact(exe);
 
@@ -98,12 +95,12 @@ pub fn build(b: *std.Build) void {
     const run_bench_micro = b.addRunArtifact(bench_micro_exe);
     run_bench_micro.step.dependOn(b.getInstallStep());
 
-    const bench_micro_step = b.step("bench:micro", "Run micro-benchmarks (component-level)");
+    const bench_micro_step = b.step("benchmark:micro", "Run micro-benchmarks (component-level)");
     bench_micro_step.dependOn(&run_bench_micro.step);
 
     // Load tests (integration benchmarks with real server)
     const bench_load_exe = b.addExecutable(.{
-        .name = "bench-load",
+        .name = "benchmark-load",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/bench_load.zig"),
             .target = target,
@@ -115,10 +112,10 @@ pub fn build(b: *std.Build) void {
     const run_bench_load = b.addRunArtifact(bench_load_exe);
     run_bench_load.step.dependOn(b.getInstallStep());
 
-    const bench_load_step = b.step("bench:load", "Run load tests (requires running server)");
+    const bench_load_step = b.step("benchmark:load", "Run load tests (requires running server)");
     bench_load_step.dependOn(&run_bench_load.step);
 
     // Run all benchmarks (micro only, as load tests require manual server start)
-    const bench_all_step = b.step("bench", "Run all benchmarks (micro-benchmarks only)");
+    const bench_all_step = b.step("benchmark", "Run all benchmarks (micro-benchmarks only)");
     bench_all_step.dependOn(&run_bench_micro.step);
 }
