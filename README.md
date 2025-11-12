@@ -1,4 +1,5 @@
 # Zedis
+
 [![Release](https://github.com/barddoo/zedis/actions/workflows/release.yml/badge.svg)](https://github.com/barddoo/zedis/actions/workflows/release.yml)
 
 A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), designed for learning and experimentation. Zedis implements the core Redis protocol and data structures with a focus on simplicity, performance, and thread safety.
@@ -94,11 +95,24 @@ zig build -Doptimize=ReleaseFast
 zig build test
 ```
 
+## Contributing
+
+Contributors are welcome! Whether you're fixing bugs, adding features, improving documentation, or suggesting enhancements, your contributions are appreciated.
+
+Feel free to:
+
+- Open an issue to report bugs or suggest features
+- Submit pull requests with improvements
+- Share feedback and ideas
+
+Check out the [open issues](https://github.com/barddoo/zedis/issues) to see where you can help.
+
 ## Stay Connected
 
-- Subscribe to my [newsletter](https://substack.com/@charlesfonseca)
+- Subscribe to my [newsletter](https://charlesfonseca.substack.com)
 
 ## Thanks
+
 - [Andrew Kelley](https://andrewkelley.me) - For creating the amazing [Zig Language](https://ziglang.org/).
 - [Redis](https://redis.io/) - For the inspiration and protocol design.
 - [TigerBeetle](https://tigerbeetle.com/) - For the memory management and the tiger style.
