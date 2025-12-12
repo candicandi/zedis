@@ -9,11 +9,12 @@ const Duplicate_Policy = ts_mod.Duplicate_Policy;
 const EncodingType = ts_mod.EncodingType;
 const Aggregation = ts_mod.Aggregation;
 const AggregationType = ts_mod.AggregationType;
+const Io = std.Io;
 
 const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 
 /// Helper to write last sample in RESP format
-fn writeLastSample(writer: *std.Io.Writer, time_series: *TimeSeries) !void {
+fn writeLastSample(writer: *Io.Writer, time_series: *TimeSeries) !void {
     if (time_series.last_sample) |s| {
         // Return [timestamp, value] array
         try resp.writeListLen(writer, 2);
@@ -25,7 +26,7 @@ fn writeLastSample(writer: *std.Io.Writer, time_series: *TimeSeries) !void {
     }
 }
 
-fn modifyAndAdd(writer: *std.Io.Writer, store: *Store, args: []const Value, operation: enum { increment, decrement }) !void {
+fn modifyAndAdd(writer: *Io.Writer, store: *Store, args: []const Value, operation: enum { increment, decrement }) !void {
     const key = args[1].asSlice();
     const timestamp = try args[2].asInt();
     const delta = try args[3].asF64();
@@ -45,7 +46,7 @@ fn modifyAndAdd(writer: *std.Io.Writer, store: *Store, args: []const Value, oper
     }
 }
 
-pub fn ts_create(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ts_create(writer: *Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     var retention_ms: u64 = 0;
     var encoding: ?[]const u8 = null;
@@ -89,7 +90,7 @@ pub fn ts_create(writer: *std.Io.Writer, store: *Store, args: []const Value) !vo
     try resp.writeOK(writer);
 }
 
-pub fn ts_add(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ts_add(writer: *Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const timestamp = try args[2].asInt();
     const value = try args[3].asF64();
@@ -104,7 +105,7 @@ pub fn ts_add(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     }
 }
 
-pub fn ts_get(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ts_get(writer: *Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const ts = try store.getTimeSeries(key);
@@ -117,15 +118,15 @@ pub fn ts_get(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     }
 }
 
-pub fn ts_incrby(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ts_incrby(writer: *Io.Writer, store: *Store, args: []const Value) !void {
     try modifyAndAdd(writer, store, args, .increment);
 }
 
-pub fn ts_decrby(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ts_decrby(writer: *Io.Writer, store: *Store, args: []const Value) !void {
     try modifyAndAdd(writer, store, args, .decrement);
 }
 
-pub fn ts_alter(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ts_alter(writer: *Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const ts = try store.getTimeSeries(key);
@@ -161,7 +162,7 @@ pub fn ts_alter(writer: *std.Io.Writer, store: *Store, args: []const Value) !voi
     }
 }
 
-pub fn ts_range(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ts_range(writer: *Io.Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const ts = try store.getTimeSeries(key);

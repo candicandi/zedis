@@ -6,8 +6,9 @@ const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
 const resp = @import("./resp.zig");
 const Io = std.Io;
+const Writer = Io.Writer;
 
-pub fn set(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn set(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = args[2].asSlice();
 
@@ -16,7 +17,7 @@ pub fn set(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeOK(writer);
 }
 
-pub fn get(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn get(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = store.get(key);
 
@@ -34,14 +35,14 @@ pub fn get(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     }
 }
 
-pub fn incr(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn incr(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const new_value = try incrDecr(store, key, 1);
 
     try resp.writeIntBulkString(writer, new_value);
 }
 
-pub fn decr(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn decr(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const new_value = try incrDecr(store, key, -1);
 
@@ -92,7 +93,7 @@ fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
     }
 }
 
-pub fn del(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn del(writer: *Writer, store: *Store, args: []const Value) !void {
     var deleted: u32 = 0;
     for (args[1..]) |key| {
         if (store.delete(key.asSlice())) {
@@ -103,7 +104,7 @@ pub fn del(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeInt(writer, deleted);
 }
 
-pub fn expire(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn expire(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const expiration_seconds = args[2].asInt() catch {
         return resp.writeInt(writer, 0);
@@ -121,7 +122,7 @@ pub fn expire(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     try resp.writeInt(writer, @intFromBool(try result));
 }
 
-pub fn expireAt(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn expireAt(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const ts = try Io.Clock.real.now(store.io);
     const current_time = ts.toMilliseconds();
@@ -137,7 +138,7 @@ pub fn expireAt(writer: *std.Io.Writer, store: *Store, args: []const Value) !voi
     try resp.writeInt(writer, @intFromBool(result));
 }
 
-pub fn append(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn append(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const append_value = args[2].asSlice();
 
@@ -170,7 +171,7 @@ pub fn append(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     try resp.writeInt(writer, new_value.len);
 }
 
-pub fn strlen(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn strlen(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = store.get(key);
 
@@ -191,7 +192,7 @@ pub fn strlen(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     }
 }
 
-pub fn getset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn getset(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const new_value = args[2].asSlice();
 
@@ -213,7 +214,7 @@ pub fn getset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     try store.set(key, new_value);
 }
 
-pub fn mget(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn mget(writer: *Writer, store: *Store, args: []const Value) !void {
     // Write array header
     try resp.writeListLen(writer, args.len - 1);
 
@@ -235,7 +236,7 @@ pub fn mget(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     }
 }
 
-pub fn mset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn mset(writer: *Writer, store: *Store, args: []const Value) !void {
     // Args format: MSET key1 value1 key2 value2 ...
     if (args.len % 2 != 1) {
         return error.InvalidArgument;
@@ -252,7 +253,7 @@ pub fn mset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeOK(writer);
 }
 
-pub fn setex(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn setex(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const seconds = args[2].asInt() catch {
         return error.ValueNotInteger;
@@ -273,7 +274,7 @@ pub fn setex(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeOK(writer);
 }
 
-pub fn setnx(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn setnx(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = args[2].asSlice();
 
@@ -287,7 +288,7 @@ pub fn setnx(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     }
 }
 
-pub fn incrby(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn incrby(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const increment = args[2].asInt() catch {
         return error.ValueNotInteger;
@@ -297,7 +298,7 @@ pub fn incrby(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     try resp.writeIntBulkString(writer, new_value);
 }
 
-pub fn decrby(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn decrby(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const decrement = args[2].asInt() catch {
         return error.ValueNotInteger;
@@ -307,7 +308,7 @@ pub fn decrby(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     try resp.writeIntBulkString(writer, new_value);
 }
 
-pub fn incrbyfloat(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn incrbyfloat(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const increment_str = args[2].asSlice();
 

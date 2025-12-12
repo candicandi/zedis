@@ -4,6 +4,8 @@ const ts_mod = @import("../time_series.zig");
 const TimeSeries = ts_mod.TimeSeries;
 const Duplicate_Policy = @import("../time_series.zig").Duplicate_Policy;
 const EncodingType = @import("../time_series.zig").EncodingType;
+const Io = std.Io;
+const Writer = Io.Writer;
 
 test "TimeSeries: basic uncompressed storage" {
     const allocator = testing.allocator;
@@ -524,7 +526,7 @@ test "TS.INCRBY increments from zero" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create time series
     const create_args = [_]Value{
@@ -541,7 +543,7 @@ test "TS.INCRBY increments from zero" {
 
     // Increment by 5.0 (should start from 0.0)
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const incrby_args = [_]Value{
         .{ .data = "TS.INCRBY" },
         .{ .data = "myts" },
@@ -555,7 +557,7 @@ test "TS.INCRBY increments from zero" {
 
     // Verify value is 5.0 (formatted as "5" in RESP)
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const get_args = [_]Value{
         .{ .data = "TS.GET" },
         .{ .data = "myts" },
@@ -575,7 +577,7 @@ test "TS.INCRBY increments from existing value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create and add initial value
     const create_args = [_]Value{
@@ -585,7 +587,7 @@ test "TS.INCRBY increments from existing value" {
     try ts_commands.ts_create(&writer, &store, &create_args);
 
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const add_args = [_]Value{
         .{ .data = "TS.ADD" },
         .{ .data = "myts" },
@@ -596,7 +598,7 @@ test "TS.INCRBY increments from existing value" {
 
     // Increment by 3.0
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const incrby_args = [_]Value{
         .{ .data = "TS.INCRBY" },
         .{ .data = "myts" },
@@ -607,7 +609,7 @@ test "TS.INCRBY increments from existing value" {
 
     // Verify value is 13.0 (formatted as "13" in RESP)
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const get_args = [_]Value{
         .{ .data = "TS.GET" },
         .{ .data = "myts" },
@@ -627,7 +629,7 @@ test "TS.DECRBY decrements value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create and add initial value
     const create_args = [_]Value{
@@ -637,7 +639,7 @@ test "TS.DECRBY decrements value" {
     try ts_commands.ts_create(&writer, &store, &create_args);
 
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const add_args = [_]Value{
         .{ .data = "TS.ADD" },
         .{ .data = "myts" },
@@ -648,7 +650,7 @@ test "TS.DECRBY decrements value" {
 
     // Decrement by 7.0
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const decrby_args = [_]Value{
         .{ .data = "TS.DECRBY" },
         .{ .data = "myts" },
@@ -659,7 +661,7 @@ test "TS.DECRBY decrements value" {
 
     // Verify value is 13.0 (formatted as "13" in RESP)
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const get_args = [_]Value{
         .{ .data = "TS.GET" },
         .{ .data = "myts" },
@@ -679,7 +681,7 @@ test "TS.ALTER changes retention" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create with retention 1000
     const create_args = [_]Value{
@@ -692,7 +694,7 @@ test "TS.ALTER changes retention" {
 
     // Alter retention to 5000
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const alter_args = [_]Value{
         .{ .data = "TS.ALTER" },
         .{ .data = "myts" },
@@ -717,7 +719,7 @@ test "TS.ALTER changes duplicate policy" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create with BLOCK policy
     const create_args = [_]Value{
@@ -730,7 +732,7 @@ test "TS.ALTER changes duplicate policy" {
 
     // Alter to LAST policy
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const alter_args = [_]Value{
         .{ .data = "TS.ALTER" },
         .{ .data = "myts" },
@@ -939,7 +941,7 @@ test "TS.RANGE command with COUNT parameter" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create time series with uncompressed encoding
     const create_args = [_]Value{
@@ -954,7 +956,7 @@ test "TS.RANGE command with COUNT parameter" {
     var i: usize = 0;
     while (i < 5) : (i += 1) {
         buffer = std.mem.zeroes([4096]u8);
-        writer = std.Io.Writer.fixed(&buffer);
+        writer = Writer.fixed(&buffer);
         const timestamp_str = try std.fmt.allocPrint(allocator, "{d}", .{1000 + i * 100});
         const value_str = try std.fmt.allocPrint(allocator, "{d}.0", .{i * 10});
         const add_args = [_]Value{
@@ -968,7 +970,7 @@ test "TS.RANGE command with COUNT parameter" {
 
     // Range with COUNT 3
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const range_args = [_]Value{
         .{ .data = "TS.RANGE" },
         .{ .data = "myts" },
@@ -1610,7 +1612,7 @@ test "TS.RANGE command with aggregation parameter" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create time series
     const create_args = [_]Value{
@@ -1625,7 +1627,7 @@ test "TS.RANGE command with aggregation parameter" {
 
     for (timestamps, values) |ts_str, val_str| {
         buffer = std.mem.zeroes([4096]u8);
-        writer = std.Io.Writer.fixed(&buffer);
+        writer = Writer.fixed(&buffer);
         const add_args = [_]Value{
             .{ .data = "TS.ADD" },
             .{ .data = "myts" },
@@ -1637,7 +1639,7 @@ test "TS.RANGE command with aggregation parameter" {
 
     // Range with AVG aggregation, bucket size 1000
     buffer = std.mem.zeroes([4096]u8);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
     const range_args = [_]Value{
         .{ .data = "TS.RANGE" },
         .{ .data = "myts" },

@@ -1,4 +1,7 @@
 const std = @import("std");
+const fmt = std.fmt;
+const Io = std.Io;
+const Reader = Io.Reader;
 
 // Represents a value in the RESP protocol, which is a bulk string.
 pub const Value = struct {
@@ -8,24 +11,24 @@ pub const Value = struct {
         return self.data;
     }
 
-    pub inline fn asInt(self: Value) std.fmt.ParseIntError!i64 {
-        return std.fmt.parseInt(i64, self.data, 10);
+    pub inline fn asInt(self: Value) fmt.ParseIntError!i64 {
+        return fmt.parseInt(i64, self.data, 10);
     }
 
-    pub inline fn asU64(self: Value) std.fmt.ParseIntError!u64 {
-        return std.fmt.parseInt(u64, self.data, 10);
+    pub inline fn asU64(self: Value) fmt.ParseIntError!u64 {
+        return fmt.parseInt(u64, self.data, 10);
     }
 
-    pub inline fn asF64(self: Value) std.fmt.ParseFloatError!f64 {
-        return std.fmt.parseFloat(f64, self.data);
+    pub inline fn asF64(self: Value) fmt.ParseFloatError!f64 {
+        return fmt.parseFloat(f64, self.data);
     }
 
-    pub inline fn asUsize(self: Value) std.fmt.ParseIntError!usize {
-        return std.fmt.parseInt(usize, self.data, 10);
+    pub inline fn asUsize(self: Value) fmt.ParseIntError!usize {
+        return fmt.parseInt(usize, self.data, 10);
     }
 
-    pub inline fn asU16(self: Value) std.fmt.ParseIntError!u16 {
-        return std.fmt.parseInt(u16, self.data, 10);
+    pub inline fn asU16(self: Value) fmt.ParseIntError!u16 {
+        return fmt.parseInt(u16, self.data, 10);
     }
 };
 
@@ -141,14 +144,14 @@ pub const Parser = struct {
     // Main parsing function. It expects a command to be a RESP array of bulk strings:
     // *<num>\r\n$<len>\r\n<data>\r\n ...
     // Uses Redis-style pre-allocation with 1024 cap to prevent DoS attacks
-    pub fn parse(self: *Parser, reader: *std.Io.Reader) !Command {
+    pub fn parse(self: *Parser, reader: *Reader) !Command {
         const line = try Parser.readLine(reader);
 
         if (line.len == 0 or line[0] != '*') {
             return error.InvalidProtocol;
         }
 
-        const count = std.fmt.parseInt(usize, line[1..], 10) catch return error.InvalidProtocol;
+        const count = fmt.parseInt(usize, line[1..], 10) catch return error.InvalidProtocol;
 
         // Redis-style: pre-allocate with safety cap at 1024 to prevent malicious requests
         // from allocating huge arrays (e.g., "*999999999\r\n")
@@ -172,8 +175,8 @@ pub const Parser = struct {
     }
 
     // Reads bulk string data based on the length specified in the bulk_line.
-    fn readBulkData(self: *Parser, reader: *std.Io.Reader, bulk_line: []const u8) ![]const u8 {
-        const len = std.fmt.parseInt(i64, bulk_line[1..], 10) catch return error.InvalidProtocol;
+    fn readBulkData(self: *Parser, reader: *Reader, bulk_line: []const u8) ![]const u8 {
+        const len = fmt.parseInt(i64, bulk_line[1..], 10) catch return error.InvalidProtocol;
 
         if (len < 0) {
             return error.InvalidProtocol; // Null bulk strings not supported in this example
@@ -197,7 +200,7 @@ pub const Parser = struct {
     }
 
     // Reads a RESP line terminated by CRLF. Returns slice of internal buffer
-    fn readLine(reader: *std.Io.Reader) ![]const u8 {
+    fn readLine(reader: *Reader) ![]const u8 {
         // Read until '\n' delimiter (inclusive, so \n is consumed)
         const line_with_crlf = reader.takeDelimiterInclusive('\n') catch |err| {
             if (err == error.ReadFailed) return error.EndOfStream;
@@ -222,7 +225,7 @@ const testing = std.testing;
 
 test "parser readLine with CRLF" {
     const test_data = "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
 
     const line1 = try Parser.readLine(reader);
@@ -240,7 +243,7 @@ test "parser readLine with CRLF" {
 
 test "parser full command with buffering" {
     const test_data = "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -255,7 +258,7 @@ test "parser full command with buffering" {
 
 test "parser readLine invalid protocol - missing CR" {
     const test_data = "*3\n$3\nSET\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
 
     const result = Parser.readLine(reader);
@@ -264,7 +267,7 @@ test "parser readLine invalid protocol - missing CR" {
 
 test "parser readLine empty line" {
     const test_data = "\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
 
     const line = try Parser.readLine(reader);
@@ -273,7 +276,7 @@ test "parser readLine empty line" {
 
 test "parser readLine end of stream" {
     const test_data = "*3\r\n$3\r\nSET\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
 
     _ = try Parser.readLine(reader); // *3
@@ -286,7 +289,7 @@ test "parser readLine end of stream" {
 
 test "parser parse invalid protocol - not starting with asterisk" {
     const test_data = "$3\r\nSET\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -296,7 +299,7 @@ test "parser parse invalid protocol - not starting with asterisk" {
 
 test "parser parse invalid protocol - bulk string not starting with dollar" {
     const test_data = "*1\r\n+OK\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -306,7 +309,7 @@ test "parser parse invalid protocol - bulk string not starting with dollar" {
 
 test "parser parse invalid protocol - malformed array count" {
     const test_data = "*abc\r\n$3\r\nSET\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -316,7 +319,7 @@ test "parser parse invalid protocol - malformed array count" {
 
 test "parser parse invalid protocol - malformed bulk length" {
     const test_data = "*1\r\n$xyz\r\nSET\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -326,7 +329,7 @@ test "parser parse invalid protocol - malformed bulk length" {
 
 test "parser parse invalid protocol - null bulk string" {
     const test_data = "*1\r\n$-1\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -336,7 +339,7 @@ test "parser parse invalid protocol - null bulk string" {
 
 test "parser parse invalid protocol - missing trailing CRLF after bulk data" {
     const test_data = "*1\r\n$3\r\nSET";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -346,7 +349,7 @@ test "parser parse invalid protocol - missing trailing CRLF after bulk data" {
 
 test "parser parse invalid protocol - wrong trailing after bulk data" {
     const test_data = "*1\r\n$3\r\nSET\n\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -356,7 +359,7 @@ test "parser parse invalid protocol - wrong trailing after bulk data" {
 
 test "parser parse empty bulk string" {
     const test_data = "*2\r\n$3\r\nSET\r\n$0\r\n\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -370,7 +373,7 @@ test "parser parse empty bulk string" {
 
 test "parser parse single argument command" {
     const test_data = "*1\r\n$4\r\nPING\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -383,7 +386,7 @@ test "parser parse single argument command" {
 
 test "parser parse command with special characters" {
     const test_data = "*2\r\n$3\r\nSET\r\n$12\r\nhello\nworld!\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -397,7 +400,7 @@ test "parser parse command with special characters" {
 
 test "parser parse command with unicode" {
     const test_data = "*2\r\n$3\r\nSET\r\n$12\r\nhello 世界\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -411,7 +414,7 @@ test "parser parse command with unicode" {
 
 test "parser parse multiple commands in sequence" {
     const test_data = "*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n";
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 
@@ -437,9 +440,9 @@ test "parser parse large bulk string" {
     @memset(&large_value, 'X');
 
     var test_buf: [2048]u8 = undefined;
-    const test_data = std.fmt.bufPrint(&test_buf, "*2\r\n$3\r\nSET\r\n$1024\r\n{s}\r\n", .{large_value}) catch unreachable;
+    const test_data = fmt.bufPrint(&test_buf, "*2\r\n$3\r\nSET\r\n$1024\r\n{s}\r\n", .{large_value}) catch unreachable;
 
-    const fixed_reader = std.Io.Reader.fixed(test_data);
+    const fixed_reader = Reader.fixed(test_data);
     const reader = @constCast(&fixed_reader);
     var parser = Parser.init(testing.allocator);
 

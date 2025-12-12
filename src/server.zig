@@ -15,6 +15,7 @@ const config_module = @import("config.zig");
 const KeyValueAllocator = @import("kv_allocator.zig");
 const aof = @import("./aof/aof.zig");
 const Io = std.Io;
+const Stream = Io.net.Stream;
 
 const Server = @This();
 
@@ -25,9 +26,9 @@ config: config_module.Config,
 base_allocator: std.mem.Allocator,
 
 // Network
-address: std.Io.net.IpAddress,
-listener: std.Io.net.Server,
-io: std.Io,
+address: Io.net.IpAddress,
+listener: Io.net.Server,
+io: Io,
 
 // Fixed allocations (pre-allocated, never freed individually)
 client_pool: []Client,
@@ -60,7 +61,7 @@ pub fn initWithConfig(
     config: config_module.Config,
     io: Io,
 ) !Server {
-    const address = try std.Io.net.IpAddress.parse(host, port);
+    const address = try Io.net.IpAddress.parse(host, port);
 
     const listener = try address.listen(io, .{ .kernel_backlog = 128 * 10 });
 
@@ -206,7 +207,7 @@ pub fn deinit(self: *Server) void {
 // The main server loop. It waits for incoming connections and
 // handles each client (one thread per connection).
 pub fn listen(self: *Server) !void {
-    var connection_group: std.Io.Group = .init;
+    var connection_group: Io.Group = .init;
     defer connection_group.wait(self.io); // Wait for all clients to finish
 
     while (true) {

@@ -4,8 +4,10 @@ const Store = storeModule.Store;
 const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
 const resp = @import("./resp.zig");
+const Io = std.Io;
+const Writer = Io.Writer;
 
-pub fn keys(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn keys(writer: *Writer, store: *Store, args: []const Value) !void {
     const pattern = args[1].asSlice();
 
     const all_keys = try store.keys(store.allocator, pattern);
@@ -16,7 +18,7 @@ pub fn keys(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     }
 }
 
-pub fn exists(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn exists(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     if (store.exists(key)) {
@@ -26,7 +28,7 @@ pub fn exists(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     }
 }
 
-pub fn ttl(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn ttl(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const exists_key = store.exists(key);
@@ -39,7 +41,7 @@ pub fn ttl(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeInt(writer, ttl_int);
 }
 
-pub fn persist(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn persist(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const result = store.persist(key);
@@ -50,7 +52,7 @@ pub fn persist(writer: *std.Io.Writer, store: *Store, args: []const Value) !void
     }
 }
 
-pub fn typeCmd(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn typeCmd(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const obj = store.get(key);
@@ -64,7 +66,7 @@ pub fn typeCmd(writer: *std.Io.Writer, store: *Store, args: []const Value) !void
     try resp.writeBulkString(writer, type_str);
 }
 
-pub fn rename(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn rename(writer: *Writer, store: *Store, args: []const Value) !void {
     const old_key = args[1].asSlice();
     const new_key = args[2].asSlice();
 
@@ -78,7 +80,7 @@ pub fn rename(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     try resp.writeSimpleString(writer, "OK");
 }
 
-pub fn randomkey(writer: *std.Io.Writer, store: *Store, _: []const Value) !void {
+pub fn randomkey(writer: *Writer, store: *Store, _: []const Value) !void {
     var random = std.Random.DefaultPrng.init(@intCast(0));
     const key = store.randomKey(random.random());
 

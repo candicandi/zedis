@@ -39,7 +39,7 @@ pub const Writer = struct {
     }
 
     // only to be called if enabled
-    pub fn writer(self: *Writer) *std.Io.Writer {
+    pub fn writer(self: *Writer) *Io.Writer {
         return &self.file_writer.?.interface;
     }
 };
@@ -53,7 +53,7 @@ pub const Reader = struct {
     io: Io,
 
     // take path when ready to
-    pub fn init(allocator: std.mem.Allocator, store: *Store, registry: *Registry, io: std.Io) !Reader {
+    pub fn init(allocator: std.mem.Allocator, store: *Store, registry: *Registry, io: Io) !Reader {
         const file = try std.fs.cwd().openFile(DEFAULT_NAME, .{ .mode = .read_only });
         var result = Reader{
             .file_reader = undefined,
@@ -130,11 +130,11 @@ test "aof writing test" {
     defer registry.deinit();
     defer store.deinit();
 
-    var reader = std.Io.Reader.fixed(test_file_data);
+    var reader = Io.Reader.fixed(test_file_data);
     var cmd = try parser.parse(&reader);
     defer cmd.deinit();
 
-    const discarding = std.Io.Writer.Discarding.init(&.{});
+    const discarding = Io.Writer.Discarding.init(&.{});
     var writer = discarding.writer;
 
     var dummy_client: Client = undefined;

@@ -6,6 +6,8 @@ const ZedisListNode = @import("../list.zig").ZedisListNode;
 const ZedisList = @import("../list.zig").ZedisList;
 const Store = @import("../store.zig").Store;
 const resp = @import("./resp.zig");
+const Io = std.Io;
+const Writer = Io.Writer;
 
 /// Helper function to normalize a list index (handles negative indices).
 /// Returns null if the index is out of bounds.
@@ -36,7 +38,7 @@ inline fn normalizeRangeIndex(index: i64, list_len: usize, comptime is_start: bo
     }
 }
 
-pub fn lpush(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn lpush(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const list = try store.getSetList(key);
@@ -50,7 +52,7 @@ pub fn lpush(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeInt(writer, list.len());
 }
 
-pub fn rpush(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn rpush(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
 
     const list = try store.getSetList(key);
@@ -64,7 +66,7 @@ pub fn rpush(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeInt(writer, list.len());
 }
 
-pub fn lpop(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn lpop(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const list = try store.getList(key) orelse {
         try resp.writeNull(writer);
@@ -100,7 +102,7 @@ pub fn lpop(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     }
 }
 
-pub fn rpop(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn rpop(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const list = try store.getList(key) orelse {
         try resp.writeNull(writer);
@@ -136,7 +138,7 @@ pub fn rpop(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     }
 }
 
-pub fn llen(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn llen(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const list = try store.getList(key);
 
@@ -147,7 +149,7 @@ pub fn llen(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     }
 }
 
-pub fn lindex(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn lindex(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const index = try args[2].asInt();
     const list = try store.getList(key) orelse {
@@ -168,7 +170,7 @@ pub fn lindex(writer: *std.Io.Writer, store: *Store, args: []const Value) !void 
     try resp.writePrimitiveValue(writer, item);
 }
 
-pub fn lset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn lset(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const index = try args[2].asInt();
     const value = args[3].asSlice();
@@ -188,7 +190,7 @@ pub fn lset(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
     try resp.writeOK(writer);
 }
 
-pub fn lrange(writer: *std.Io.Writer, store: *Store, args: []const Value) !void {
+pub fn lrange(writer: *Writer, store: *Store, args: []const Value) !void {
     const key = args[1].asSlice();
     const start = try args[2].asInt();
     const stop = try args[3].asInt();

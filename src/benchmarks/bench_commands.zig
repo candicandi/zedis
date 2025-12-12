@@ -15,7 +15,7 @@ const CommandBenchContext = struct {
     store: Store,
     registry: CommandRegistry,
     allocator: Allocator,
-    writer: std.Io.Writer,
+    writer: Writer,
     client: Client,
     aof_writer: aof.Writer,
     counter: std.atomic.Value(usize),
@@ -27,7 +27,7 @@ const CommandBenchContext = struct {
         const registry = try initRegistry(allocator);
 
         // Use discarding writer for benchmarking (we don't need output)
-        const discarding = std.Io.Writer.Discarding.init(&.{});
+        const discarding = Writer.Discarding.init(&.{});
         const writer = discarding.writer;
 
         // Create dummy client and AOF writer for benchmarking

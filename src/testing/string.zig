@@ -3,6 +3,8 @@ const Store = @import("../store.zig").Store;
 const Value = @import("../parser.zig").Value;
 const testing = std.testing;
 const string_commands = @import("../commands/string.zig");
+const Io = std.Io;
+const Writer = Io.Writer;
 
 test "SET command with string value" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -13,7 +15,7 @@ test "SET command with string value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "SET" },
@@ -39,7 +41,7 @@ test "SET command with integer value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "SET" },
@@ -65,7 +67,7 @@ test "GET command with existing string value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("key1", "hello");
 
@@ -88,7 +90,7 @@ test "GET command with existing integer value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.setInt("key1", 42);
 
@@ -111,7 +113,7 @@ test "GET command with non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "GET" },
@@ -132,7 +134,7 @@ test "INCR command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "INCR" },
@@ -157,7 +159,7 @@ test "INCR command on existing integer" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.setInt("counter", 5);
 
@@ -184,7 +186,7 @@ test "INCR command on string that represents integer" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("counter", "10");
 
@@ -211,7 +213,7 @@ test "INCR command on non-integer string" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("key1", "hello");
 
@@ -233,7 +235,7 @@ test "DECR command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "DECR" },
@@ -258,7 +260,7 @@ test "DECR command on existing integer" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.setInt("counter", 10);
 
@@ -285,7 +287,7 @@ test "DEL command with single existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("key1", "value1");
 
@@ -311,7 +313,7 @@ test "DEL command with multiple keys" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("key1", "value1");
     try store.set("key2", "value2");
@@ -343,7 +345,7 @@ test "DEL command with non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "DEL" },
@@ -364,7 +366,7 @@ test "APPEND command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "APPEND" },
@@ -390,7 +392,7 @@ test "APPEND command on existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "Hello");
 
@@ -418,7 +420,7 @@ test "STRLEN command on existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "Hello World");
 
@@ -441,7 +443,7 @@ test "STRLEN command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "STRLEN" },
@@ -462,7 +464,7 @@ test "GETSET command on existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "Hello");
 
@@ -490,7 +492,7 @@ test "GETSET command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "GETSET" },
@@ -516,7 +518,7 @@ test "MGET command with multiple keys" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("key1", "value1");
     try store.setInt("key2", 42);
@@ -542,7 +544,7 @@ test "MSET command with multiple key-value pairs" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "MSET" },
@@ -574,7 +576,7 @@ test "SETEX command sets key with expiration" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "SETEX" },
@@ -601,7 +603,7 @@ test "SETNX command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "SETNX" },
@@ -627,7 +629,7 @@ test "SETNX command on existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "World");
 
@@ -655,7 +657,7 @@ test "INCRBY command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "INCRBY" },
@@ -681,7 +683,7 @@ test "INCRBY command on existing integer" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.setInt("mykey", 10);
 
@@ -709,7 +711,7 @@ test "DECRBY command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "DECRBY" },
@@ -735,7 +737,7 @@ test "DECRBY command on existing integer" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.setInt("mykey", 10);
 
@@ -763,7 +765,7 @@ test "INCRBYFLOAT command on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "INCRBYFLOAT" },
@@ -785,7 +787,7 @@ test "INCRBYFLOAT command on existing float" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "10.5");
 
@@ -810,7 +812,7 @@ test "INCRBYFLOAT command with negative increment" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "5.0");
 

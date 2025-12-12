@@ -3,6 +3,8 @@ const Store = @import("../store.zig").Store;
 const Value = @import("../parser.zig").Value;
 const testing = std.testing;
 const keys_commands = @import("../commands/keys.zig");
+const Io = std.Io;
+const Writer = Io.Writer;
 
 test "EXISTS command with existing key" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -13,7 +15,7 @@ test "EXISTS command with existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "value");
 
@@ -36,7 +38,7 @@ test "EXISTS command with non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "EXISTS" },
@@ -57,7 +59,7 @@ test "KEYS command with wildcard pattern" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("user:1", "alice");
     try store.set("user:2", "bob");
@@ -84,7 +86,7 @@ test "KEYS command with empty store" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "KEYS" },
@@ -105,7 +107,7 @@ test "TTL command with non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "TTL" },
@@ -126,7 +128,7 @@ test "TTL command with key without expiration" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "value");
 
@@ -149,7 +151,7 @@ test "TTL command with key with expiration" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "value");
     const future_time = std.time.milliTimestamp() + 10000; // 10 seconds in future
@@ -176,7 +178,7 @@ test "PERSIST command with key having expiration" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "value");
     const future_time = std.time.milliTimestamp() + 10000;
@@ -205,7 +207,7 @@ test "PERSIST command with key without expiration" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "value");
 
@@ -228,7 +230,7 @@ test "TYPE command with string value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "hello");
 
@@ -251,7 +253,7 @@ test "TYPE command with integer value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.setInt("mykey", 42);
 
@@ -274,7 +276,7 @@ test "TYPE command with list value" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     _ = try store.createList("mylist");
 
@@ -297,7 +299,7 @@ test "TYPE command with non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "TYPE" },
@@ -318,7 +320,7 @@ test "RENAME command with existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("oldkey", "value");
 
@@ -350,7 +352,7 @@ test "RENAME command with non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "RENAME" },
@@ -371,7 +373,7 @@ test "RANDOMKEY command with non-empty store" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("key1", "value1");
     try store.set("key2", "value2");
@@ -399,7 +401,7 @@ test "RANDOMKEY command with empty store" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "RANDOMKEY" },
@@ -419,7 +421,7 @@ test "KEYS command returns all keys when pattern is wildcard" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("apple", "fruit");
     try store.set("banana", "fruit");
@@ -450,7 +452,7 @@ test "RENAME overwrites existing destination key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     try store.set("source", "source_value");
     try store.set("dest", "dest_value");

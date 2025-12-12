@@ -3,6 +3,8 @@ const Store = @import("../store.zig").Store;
 const Value = @import("../parser.zig").Value;
 const testing = std.testing;
 const list_commands = @import("../commands/list.zig");
+const Io = std.Io;
+const Writer = Io.Writer;
 
 // LPUSH Tests
 test "LPUSH single element to new list" {
@@ -14,7 +16,7 @@ test "LPUSH single element to new list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "LPUSH" },
@@ -41,7 +43,7 @@ test "LPUSH multiple elements to new list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "LPUSH" },
@@ -70,7 +72,7 @@ test "LPUSH to existing list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // First, add some elements
     const args1 = [_]Value{
@@ -79,7 +81,7 @@ test "LPUSH to existing list" {
         .{ .data = "initial" },
     };
     try list_commands.lpush(&writer, &store, &args1);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Then add more elements
     const args2 = [_]Value{
@@ -107,7 +109,7 @@ test "RPUSH single element to new list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "RPUSH" },
@@ -133,7 +135,7 @@ test "RPUSH multiple elements to new list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "RPUSH" },
@@ -162,7 +164,7 @@ test "LPOP from list with single element" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // First create a list with one element
     const push_args = [_]Value{
@@ -171,7 +173,7 @@ test "LPOP from list with single element" {
         .{ .data = "hello" },
     };
     try list_commands.lpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Then pop the element
     const pop_args = [_]Value{
@@ -196,7 +198,7 @@ test "LPOP from non-existing list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "LPOP" },
@@ -217,7 +219,7 @@ test "LPOP with count from list with multiple elements" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create a list with multiple elements
     const push_args = [_]Value{
@@ -228,7 +230,7 @@ test "LPOP with count from list with multiple elements" {
         .{ .data = "one" },
     };
     try list_commands.lpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Pop 2 elements
     const pop_args = [_]Value{
@@ -256,7 +258,7 @@ test "LPOP with count of 0" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create a list with elements
     const push_args = [_]Value{
@@ -265,7 +267,7 @@ test "LPOP with count of 0" {
         .{ .data = "hello" },
     };
     try list_commands.lpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Pop 0 elements
     const pop_args = [_]Value{
@@ -288,7 +290,7 @@ test "RPOP from list with single element" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // First create a list with one element
     const push_args = [_]Value{
@@ -297,7 +299,7 @@ test "RPOP from list with single element" {
         .{ .data = "hello" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Then pop the element
     const pop_args = [_]Value{
@@ -318,7 +320,7 @@ test "RPOP with count from list with multiple elements" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create a list with multiple elements
     const push_args = [_]Value{
@@ -329,7 +331,7 @@ test "RPOP with count from list with multiple elements" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Pop 2 elements from the right
     const pop_args = [_]Value{
@@ -358,7 +360,7 @@ test "LLEN on existing list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create a list with elements
     const push_args = [_]Value{
@@ -369,7 +371,7 @@ test "LLEN on existing list" {
         .{ .data = "three" },
     };
     try list_commands.lpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Check length
     const llen_args = [_]Value{
@@ -390,7 +392,7 @@ test "LLEN on non-existing list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "LLEN" },
@@ -411,7 +413,7 @@ test "LLEN on empty list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create a list and then pop all elements
     const push_args = [_]Value{
@@ -426,7 +428,7 @@ test "LLEN on empty list" {
         .{ .data = "mylist" },
     };
     try list_commands.lpop(&writer, &store, &pop_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Check length of now-empty list
     const llen_args = [_]Value{
@@ -447,7 +449,7 @@ test "Mixed LPUSH and RPUSH operations" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // LPUSH "middle"
     const lpush_args = [_]Value{
@@ -456,7 +458,7 @@ test "Mixed LPUSH and RPUSH operations" {
         .{ .data = "middle" },
     };
     try list_commands.lpush(&writer, &store, &lpush_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // LPUSH "left"
     const lpush_args2 = [_]Value{
@@ -465,7 +467,7 @@ test "Mixed LPUSH and RPUSH operations" {
         .{ .data = "left" },
     };
     try list_commands.lpush(&writer, &store, &lpush_args2);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // RPUSH "right"
     const rpush_args = [_]Value{
@@ -474,7 +476,7 @@ test "Mixed LPUSH and RPUSH operations" {
         .{ .data = "right" },
     };
     try list_commands.rpush(&writer, &store, &rpush_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Should have 3 elements in order: left, middle, right
     const llen_args = [_]Value{
@@ -495,7 +497,7 @@ test "LPOP and RPOP from the same list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three
     const push_args = [_]Value{
@@ -506,7 +508,7 @@ test "LPOP and RPOP from the same list" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // LPOP should get "one"
     const lpop_args = [_]Value{
@@ -515,7 +517,7 @@ test "LPOP and RPOP from the same list" {
     };
     try list_commands.lpop(&writer, &store, &lpop_args);
     try testing.expectEqualStrings("$3\r\none\r\n", writer.buffered());
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // RPOP should get "three"
     const rpop_args = [_]Value{
@@ -524,7 +526,7 @@ test "LPOP and RPOP from the same list" {
     };
     try list_commands.rpop(&writer, &store, &rpop_args);
     try testing.expectEqualStrings("$5\r\nthree\r\n", writer.buffered());
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Should have 1 element left ("two")
     const llen_args = [_]Value{
@@ -545,7 +547,7 @@ test "LINDEX get first element" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three
     const push_args = [_]Value{
@@ -556,7 +558,7 @@ test "LINDEX get first element" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Get first element (index 0)
     const lindex_args = [_]Value{
@@ -578,7 +580,7 @@ test "LINDEX get last element with negative index" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three
     const push_args = [_]Value{
@@ -589,7 +591,7 @@ test "LINDEX get last element with negative index" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Get last element (index -1)
     const lindex_args = [_]Value{
@@ -611,7 +613,7 @@ test "LINDEX with out of range index" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one
     const push_args = [_]Value{
@@ -620,7 +622,7 @@ test "LINDEX with out of range index" {
         .{ .data = "one" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Try to get element at index 10
     const lindex_args = [_]Value{
@@ -642,7 +644,7 @@ test "LINDEX on non-existing list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "LINDEX" },
@@ -665,7 +667,7 @@ test "LSET update element at index" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three
     const push_args = [_]Value{
@@ -676,7 +678,7 @@ test "LSET update element at index" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Set element at index 1 to "TWO"
     const lset_args = [_]Value{
@@ -688,7 +690,7 @@ test "LSET update element at index" {
     try list_commands.lset(&writer, &store, &lset_args);
 
     try testing.expectEqualStrings("+OK\r\n", writer.buffered());
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Verify the element was updated
     const lindex_args = [_]Value{
@@ -710,7 +712,7 @@ test "LSET with negative index" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three
     const push_args = [_]Value{
@@ -721,7 +723,7 @@ test "LSET with negative index" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Set last element using -1
     const lset_args = [_]Value{
@@ -733,7 +735,7 @@ test "LSET with negative index" {
     try list_commands.lset(&writer, &store, &lset_args);
 
     try testing.expectEqualStrings("+OK\r\n", writer.buffered());
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Verify the last element was updated
     const lindex_args = [_]Value{
@@ -755,7 +757,7 @@ test "LSET on non-existing key" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "LSET" },
@@ -777,7 +779,7 @@ test "LSET with out of range index" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one
     const push_args = [_]Value{
@@ -786,7 +788,7 @@ test "LSET with out of range index" {
         .{ .data = "one" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Try to set element at index 10
     const lset_args = [_]Value{
@@ -810,7 +812,7 @@ test "LRANGE get all elements" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three
     const push_args = [_]Value{
@@ -821,7 +823,7 @@ test "LRANGE get all elements" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Get all elements (0 to -1)
     const lrange_args = [_]Value{
@@ -844,7 +846,7 @@ test "LRANGE get subset of elements" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three, four, five
     const push_args = [_]Value{
@@ -857,7 +859,7 @@ test "LRANGE get subset of elements" {
         .{ .data = "five" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Get elements from index 1 to 3
     const lrange_args = [_]Value{
@@ -880,7 +882,7 @@ test "LRANGE with negative indices" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three, four, five
     const push_args = [_]Value{
@@ -893,7 +895,7 @@ test "LRANGE with negative indices" {
         .{ .data = "five" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Get last 2 elements (-2 to -1)
     const lrange_args = [_]Value{
@@ -916,7 +918,7 @@ test "LRANGE on non-existing list" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     const args = [_]Value{
         .{ .data = "LRANGE" },
@@ -939,7 +941,7 @@ test "LRANGE with out of range indices" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two
     const push_args = [_]Value{
@@ -949,7 +951,7 @@ test "LRANGE with out of range indices" {
         .{ .data = "two" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Try to get elements from 10 to 20 (out of range)
     const lrange_args = [_]Value{
@@ -972,7 +974,7 @@ test "LRANGE with reversed range" {
     defer store.deinit();
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
+    var writer = Writer.fixed(&buffer);
 
     // Create list with: one, two, three
     const push_args = [_]Value{
@@ -983,7 +985,7 @@ test "LRANGE with reversed range" {
         .{ .data = "three" },
     };
     try list_commands.rpush(&writer, &store, &push_args);
-    writer = std.Io.Writer.fixed(&buffer);
+    writer = Writer.fixed(&buffer);
 
     // Try reversed range (start > stop)
     const lrange_args = [_]Value{

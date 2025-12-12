@@ -6,36 +6,38 @@ const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
 const ZedisValue = storeModule.ZedisValue;
 const PrimitiveValue = @import("../types.zig").PrimitiveValue;
+const Io = std.Io;
+const Writer = Io.Writer;
 
 // --- RESP Writing Helpers ---
 
-pub fn writeError(writer: *std.Io.Writer, msg: []const u8) !void {
+pub fn writeError(writer: *Writer, msg: []const u8) !void {
     try writer.print("-ERR {s}\r\n", .{msg});
 }
 
-pub fn writeSimpleString(writer: *std.Io.Writer, str: []const u8) !void {
+pub fn writeSimpleString(writer: *Writer, str: []const u8) !void {
     try writer.print("+{s}\r\n", .{str});
 }
 
-pub fn writeOK(writer: *std.Io.Writer) !void {
+pub fn writeOK(writer: *Writer) !void {
     try writer.writeAll("+OK\r\n");
 }
 
-pub fn writeBulkString(writer: *std.Io.Writer, str: []const u8) !void {
+pub fn writeBulkString(writer: *Writer, str: []const u8) !void {
     try writer.print("${d}\r\n{s}\r\n", .{ str.len, str });
 }
 
-pub fn writeIntBulkString(writer: *std.Io.Writer, value: i64) !void {
+pub fn writeIntBulkString(writer: *Writer, value: i64) !void {
     var buf: [19]u8 = undefined;
     const len = std.fmt.printInt(&buf, value, 10, .upper, .{});
     try writer.print("${d}\r\n{s}\r\n", .{ len, buf[0..len] });
 }
 
-pub fn writeSingleIntBulkString(writer: *std.Io.Writer, value: i64) !void {
+pub fn writeSingleIntBulkString(writer: *Writer, value: i64) !void {
     try writer.print("${d}\r\n{d}\r\n", .{ 1, value });
 }
 
-pub fn writeInt(writer: *std.Io.Writer, value: anytype) !void {
+pub fn writeInt(writer: *Writer, value: anytype) !void {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
 
@@ -49,11 +51,11 @@ pub fn writeInt(writer: *std.Io.Writer, value: anytype) !void {
     try writer.print(":{d}\r\n", .{value});
 }
 
-pub fn writeListLen(writer: *std.Io.Writer, count: usize) !void {
+pub fn writeListLen(writer: *Writer, count: usize) !void {
     try writer.print("*{d}\r\n", .{count});
 }
 
-pub fn writeTupleAsArray(writer: *std.Io.Writer, items: anytype) !void {
+pub fn writeTupleAsArray(writer: *Writer, items: anytype) !void {
     const T = @TypeOf(items);
     const info = @typeInfo(T);
 
@@ -92,17 +94,17 @@ pub fn writeTupleAsArray(writer: *std.Io.Writer, items: anytype) !void {
     }
 }
 
-pub fn writeNull(writer: *std.Io.Writer) !void {
+pub fn writeNull(writer: *Writer) !void {
     try writer.writeAll("$-1\r\n");
 }
 
-pub fn writeDoubleBulkString(writer: *std.Io.Writer, value: f64) !void {
+pub fn writeDoubleBulkString(writer: *Writer, value: f64) !void {
     var buf: [32]u8 = undefined;
     const formatted = std.fmt.bufPrint(&buf, "{d}", .{value}) catch unreachable;
     try writer.print("${d}\r\n{s}\r\n", .{ formatted.len, formatted });
 }
 
-pub fn writePrimitiveValue(writer: *std.Io.Writer, value: PrimitiveValue) !void {
+pub fn writePrimitiveValue(writer: *Writer, value: PrimitiveValue) !void {
     switch (value) {
         .string => |str| try writeBulkString(writer, str),
         .int => |i| try writeInt(writer, i),
