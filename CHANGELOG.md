@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [0.0.6] - 2025-12-12
+
+### Changed
+
+- Fix a bunch of performance issues in #32
+- Hash Table improved dramatically in #35
+- Update Zig to v0.16, use new IO API in #36
+
+
+
 ## [0.0.5] - 2025-10-22
 
 ### Changed
