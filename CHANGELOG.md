@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [0.0.7] - 2026-01-01
+
+### Changed
+
+- Add clock cache
+- Use newer Zig master version
+
 ## [0.0.6] - 2025-12-12
 
 ### Changed
