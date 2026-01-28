@@ -29,7 +29,7 @@ Download the binary from the [releases page](https://github.com/barddoo/zedis/re
 
 ### Prerequisites
 
-- [Zig](https://ziglang.org/download/) (minimum version 0.15.1)
+- [Zig](https://ziglang.org/download/) master branch (required for latest language features)
 
 ### Building and Running
 
