@@ -9,9 +9,24 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build and Release
+  build:
+    name: Build ${{ matrix.platform }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux-x86_64
+            target: x86_64-linux
+            binary: zedis
+          - platform: macos-x86_64
+            target: x86_64-macos
+            binary: zedis
+          - platform: macos-arm64
+            target: aarch64-macos
+            binary: zedis
+          # - platform: windows-x86_64
+          #   target: x86_64-windows
+          #   binary: zedis.exe
 
     steps:
       - name: Checkout code
@@ -26,6 +41,30 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+      - name: Build
+        run: |
+          zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
+          cp zig-out/bin/${{ matrix.binary }} zedis-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}${{ matrix.platform == 'windows-x86_64' && '.exe' || '' }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zedis-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}
+          path: zedis-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}${{ matrix.platform == 'windows-x86_64' && '.exe' || '' }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
       - name: Read CHANGELOG
         id: changelog
         uses: mindsers/changelog-reader-action@v2
@@ -33,28 +72,14 @@ jobs:
           version: ${{ steps.version.outputs.VERSION }}
           path: ./CHANGELOG.md
 
-      - name: Build for Linux x86_64
-        run: |
-          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-linux
-          cp zig-out/bin/zedis zedis-${{ steps.version.outputs.VERSION }}-linux-x86_64
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      - name: Build for macOS x86_64
+      - name: Move artifacts to root and generate checksums
         run: |
-          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-macos
-          cp zig-out/bin/zedis zedis-${{ steps.version.outputs.VERSION }}-macos-x86_64
-
-      - name: Build for macOS ARM64
-        run: |
-          zig build -Doptimize=ReleaseFast -Dtarget=aarch64-macos
-          cp zig-out/bin/zedis zedis-${{ steps.version.outputs.VERSION }}-macos-arm64
-
-      - name: Build for Windows x86_64
-        run: |
-          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows
-          cp zig-out/bin/zedis.exe zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe
-
-      - name: Generate checksums
-        run: |
+          mv artifacts/*/* .
           sha256sum zedis-${{ steps.version.outputs.VERSION }}-* > SHA256SUMS
 
       - name: Create GitHub Release
@@ -64,7 +89,7 @@ jobs:
             zedis-${{ steps.version.outputs.VERSION }}-linux-x86_64
             zedis-${{ steps.version.outputs.VERSION }}-macos-x86_64
             zedis-${{ steps.version.outputs.VERSION }}-macos-arm64
-            zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe
+            # zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe
             SHA256SUMS
           body: |
             ${{ steps.changelog.outputs.changes }}
