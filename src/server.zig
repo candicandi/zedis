@@ -35,7 +35,7 @@ io: Io,
 // Fixed allocations (pre-allocated, never freed individually)
 client_pool: []Client,
 client_pool_bitmap: std.bit_set.DynamicBitSet,
-client_pool_mutex: std.Thread.Mutex,
+client_pool_mutex: std.Io.Mutex,
 
 // Map of channel_name -> array of client_id
 pubsub_map: std.StringHashMap([]u64),
@@ -97,7 +97,7 @@ pub fn initWithConfig(
     @memset(client_pool, undefined);
 
     // Use shared clock for timestamp
-    const ts = try clock.now();
+    const ts = clock.now();
     const now = ts.toMilliseconds();
 
     var server = Server{
@@ -111,7 +111,7 @@ pub fn initWithConfig(
         // Fixed allocations - heap allocated
         .client_pool = client_pool,
         .client_pool_bitmap = try .initFull(base_allocator, config.max_clients),
-        .client_pool_mutex = .{},
+        .client_pool_mutex = std.Io.Mutex.init,
 
         // Arena for temporary allocations
         .temp_arena = temp_arena,
@@ -276,8 +276,11 @@ fn handleConnection(self: *Server, conn: Stream) !void {
 
 // Client pool management methods (thread-safe)
 pub fn allocateClient(self: *Server) ?*Client {
-    self.client_pool_mutex.lock();
-    defer self.client_pool_mutex.unlock();
+    self.client_pool_mutex.lock(self.io) catch |err| {
+        log.err("Failed to acquire client pool mutex: {s}", .{@errorName(err)});
+        return null;
+    };
+    defer self.client_pool_mutex.unlock(self.io);
 
     const first_free = self.client_pool_bitmap.findFirstSet() orelse return null;
     self.client_pool_bitmap.unset(first_free);
@@ -285,8 +288,11 @@ pub fn allocateClient(self: *Server) ?*Client {
 }
 
 pub fn deallocateClient(self: *Server, client: *Client) void {
-    self.client_pool_mutex.lock();
-    defer self.client_pool_mutex.unlock();
+    self.client_pool_mutex.lock(self.io) catch |err| {
+        log.err("Failed to acquire client pool mutex: {s}", .{@errorName(err)});
+        return;
+    };
+    defer self.client_pool_mutex.unlock(self.io);
 
     // Find the client index in the pool
     const pool_ptr = @intFromPtr(&self.client_pool[0]);

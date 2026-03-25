@@ -288,7 +288,7 @@ pub const Store = struct {
 
         // Check expiration
         if (self.expiration_map.get(key)) |expiration_time| {
-            const timestamp = self.clock.now() catch unreachable;
+            const timestamp = self.clock.now();
             const now = timestamp.toMilliseconds();
             if (now > expiration_time) {
                 _ = self.delete(key);
@@ -307,7 +307,7 @@ pub const Store = struct {
 
         // Check expiration before returning type
         if (self.expiration_map.get(key)) |expiration_time| {
-            const now = self.clock.now() catch unreachable;
+            const now = self.clock.now();
             if (now.toMilliseconds() > expiration_time) {
                 _ = self.delete(key);
                 return null;
@@ -325,7 +325,7 @@ pub const Store = struct {
 
         // Only check expiration if key exists AND has TTL
         if (self.expiration_map.get(key)) |expiration_time| {
-            const timestamp = self.clock.now() catch unreachable;
+            const timestamp = self.clock.now();
             const now = timestamp.toMilliseconds();
             if (now > expiration_time) {
                 _ = self.delete(key);
@@ -357,7 +357,7 @@ pub const Store = struct {
 
         // Check expiration before type checking
         if (self.expiration_map.get(key)) |expiration_time| {
-            const timestamp = self.clock.now() catch unreachable;
+            const timestamp = self.clock.now();
             const now = timestamp.toMilliseconds();
             if (now > expiration_time) {
                 _ = self.delete(key);
@@ -380,7 +380,7 @@ pub const Store = struct {
 
         // Check expiration before type checking
         if (self.expiration_map.get(key)) |expiration_time| {
-            const timestamp = self.clock.now() catch unreachable;
+            const timestamp = self.clock.now();
             const now = timestamp.toMilliseconds();
 
             if (now > expiration_time) {
@@ -435,7 +435,7 @@ pub const Store = struct {
 
         // Check expiration before type checking
         if (self.expiration_map.get(key)) |expiration_time| {
-            const timestamp = self.clock.now() catch unreachable;
+            const timestamp = self.clock.now();
             const now = timestamp.toMilliseconds();
             if (now > expiration_time) {
                 _ = self.delete(key);
@@ -473,7 +473,7 @@ pub const Store = struct {
     pub inline fn isExpired(self: Store, key: []const u8) bool {
         assert(key.len > 0);
         if (self.expiration_map.get(key)) |expiration_time| {
-            const now = self.clock.now() catch unreachable;
+            const now = self.clock.now();
             return now.toMilliseconds() > expiration_time;
         }
         return false;
@@ -599,7 +599,7 @@ pub const Store = struct {
     /// Smart maintenance trigger with rate limiting
     /// Call this after operations that modify the map (delete, put)
     pub inline fn maybeMaintenance(self: *Store) void {
-        const timestamp = self.clock.now() catch unreachable;
+        const timestamp = self.clock.now();
         const now = timestamp.toMilliseconds();
 
         // Rate limit: Don't check more than once per 50ms to avoid overhead

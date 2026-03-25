@@ -596,7 +596,7 @@ pub const TimeSeries = struct {
     }
 
     fn decompressChunk(self: *const TimeSeries, chunk: *const Chunk) !std.ArrayList(Sample) {
-        var samples: std.ArrayList(Sample) = .{};
+        var samples: std.ArrayList(Sample) = .empty;
         errdefer samples.deinit(self.allocator);
 
         // Check if this is the active tail chunk with unsealed data

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Client = @import("./client.zig").Client;
 const eql = std.mem.eql;
 const parseInt = std.fmt.parseInt;
@@ -173,7 +174,7 @@ pub fn requiresAuth(self: Config) bool {
 }
 
 pub fn readConfig(allocator: std.mem.Allocator, io: std.Io, args: std.process.Args) !Config {
-    var args_iter = args.iterate();
+    var args_iter = if (builtin.os.tag == .windows) args.iterate() else try std.process.Args.Iterator.initAllocator(args, allocator);
 
     _ = args_iter.skip();
 

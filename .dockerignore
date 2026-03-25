@@ -1,0 +1,12 @@
+.git
+.github
+.gitignore
+.zig-cache
+zig-out
+store.o
+*.rdb
+*.aof
+result.md
+new_result.md
+PLAN.md
+blog posts

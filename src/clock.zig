@@ -30,15 +30,15 @@ fn updateLoop(self: *Clock) !void {
     const duration: Io.Duration = .fromMilliseconds(self.clock_update_ms);
 
     while (true) {
-        ts = try Io.Clock.real.now(self.io);
+        ts = .now(self.io, .real);
         try Io.sleep(self.io, duration, .real);
     }
 }
 
-pub fn now(self: *Clock) Io.Clock.Error!Timestamp {
+pub fn now(self: *Clock) Timestamp {
     if (self.cached) {
         return ts;
     } else {
-        return Io.Clock.real.now(self.io);
+        return .now(self.io, .real);
     }
 }

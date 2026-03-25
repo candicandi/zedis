@@ -143,7 +143,7 @@ pub const Writer = struct {
         const bits = if (@sizeOf(usize) == 8) 64 else 32;
         try self.writeMetadata("redis-bits", .{ .int = bits });
 
-        const ts = try self.store.clock.now();
+        const ts = self.store.clock.now();
         const now_timestamp = ts.toMilliseconds();
         try self.writeMetadata("ctime", .{ .int = now_timestamp });
 
