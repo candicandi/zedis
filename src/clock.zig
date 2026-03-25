@@ -1,7 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
 const Timestamp = Io.Timestamp;
-const assert = std.debug.assert;
 
 const Clock = @This();
 
@@ -10,6 +9,7 @@ var ts: Timestamp = undefined;
 clock_update_ms: u32,
 cached: bool,
 io: Io,
+update_task: ?Io.Future(anyerror!void) = null,
 
 pub fn init(io: Io, clock_update_ms: u32) Clock {
     return .{
@@ -20,18 +20,33 @@ pub fn init(io: Io, clock_update_ms: u32) Clock {
 }
 
 pub fn start(self: *Clock) !void {
-    if (self.cached) {
-        const thread = try std.Thread.spawn(.{}, updateLoop, .{self});
-        thread.detach();
+    if (!self.cached) return;
+    self.update_task = self.io.concurrent(updateLoop, .{self}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            // io backend does not support coroutines; fall back to OS thread
+            const thread = try std.Thread.spawn(.{}, updateLoop, .{self});
+            thread.detach();
+            return;
+        },
+        else => |e| return e,
+    };
+}
+
+pub fn deinit(self: *Clock) void {
+    if (self.update_task) |*task| {
+        _ = task.cancel(self.io);
+        self.update_task = null;
     }
 }
 
-fn updateLoop(self: *Clock) !void {
+fn updateLoop(self: *Clock) anyerror!void {
     const duration: Io.Duration = .fromMilliseconds(self.clock_update_ms);
-
     while (true) {
         ts = .now(self.io, .real);
-        try Io.sleep(self.io, duration, .real);
+        Io.sleep(self.io, duration, .real) catch |err| switch (err) {
+            error.Canceled => return,
+            else => |e| return e,
+        };
     }
 }
 
