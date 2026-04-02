@@ -94,7 +94,7 @@ pub fn bf_add(writer: *Writer, store: *Store, args: []const Value) !void {
     const added = try bf_ptr.add(item);
 
     // Return 1 if newly added, 0 if already exists (or false positive)
-    try resp.writeInt(writer, if (added) 1 else 0);
+    try resp.writeInt(writer, @as(i64, @intFromBool(added)));
 }
 
 pub fn bf_madd(writer: *Writer, store: *Store, args: []const Value) !void {
@@ -121,7 +121,7 @@ pub fn bf_madd(writer: *Writer, store: *Store, args: []const Value) !void {
     // Return array of integers
     try resp.writeListLen(writer, results.len);
     for (results) |added| {
-        try resp.writeInt(writer, if (added) 1 else 0);
+        try resp.writeInt(writer, @as(i64, @intFromBool(added)));
     }
 }
 
@@ -141,7 +141,7 @@ pub fn bf_exists(writer: *Writer, store: *Store, args: []const Value) !void {
     const exists = bf_ptr.check(item);
 
     // Return 1 if may exist, 0 if definitely doesn't exist
-    try resp.writeInt(writer, if (exists) 1 else 0);
+    try resp.writeInt(writer, @as(i64, @intFromBool(exists)));
 }
 
 pub fn bf_mexists(writer: *Writer, store: *Store, args: []const Value) !void {
@@ -168,7 +168,7 @@ pub fn bf_mexists(writer: *Writer, store: *Store, args: []const Value) !void {
     // Return array of integers
     try resp.writeListLen(writer, results.len);
     for (results) |exists| {
-        try resp.writeInt(writer, if (exists) 1 else 0);
+        try resp.writeInt(writer, @as(i64, @intFromBool(exists)));
     }
 }
 
@@ -291,26 +291,26 @@ pub fn bf_insert(writer: *Writer, store: *Store, args: []const Value) !void {
 
     // Get or create the Bloom filter
     var bf_ptr: *ScalableBloomFilter = blk: {
-        if (store.getBloomFilter(key)) |existing_bf| {
+        const existing_bf = try store.getBloomFilter(key);
+        if (existing_bf) |bf| {
             if (no_create) {
                 return error.KeyNotFound;
             }
             // Check if parameters match existing filter
             // For simplicity, we'll just use existing filter
-            break :blk existing_bf;
-        } else |_| {
-            // Create new Bloom filter
-            const bf = try ScalableBloomFilter.init(.{
-                .initial_capacity = capacity,
-                .error_rate = error_rate,
-                .allocator = store.allocator,
-                .growth_factor = expansion,
-                .error_tightening_ratio = 0.5,
-                .no_scaling = non_scaling,
-            });
-            try store.createBloomFilter(key, bf);
-            break :blk (try store.getBloomFilter(key)).?;
+            break :blk bf;
         }
+
+        const bf = try ScalableBloomFilter.init(.{
+            .initial_capacity = capacity,
+            .error_rate = error_rate,
+            .allocator = store.allocator,
+            .growth_factor = expansion,
+            .error_tightening_ratio = 0.5,
+            .no_scaling = non_scaling,
+        });
+        try store.createBloomFilter(key, bf);
+        break :blk (try store.getBloomFilter(key)).?;
     };
 
     // Insert items
@@ -327,6 +327,6 @@ pub fn bf_insert(writer: *Writer, store: *Store, args: []const Value) !void {
     // Return array of integers
     try resp.writeListLen(writer, results.len);
     for (results) |added| {
-        try resp.writeInt(writer, if (added) 1 else 0);
+        try resp.writeInt(writer, @as(i64, @intFromBool(added)));
     }
 }

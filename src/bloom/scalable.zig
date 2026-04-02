@@ -45,7 +45,7 @@ pub fn init(options: ScalableBloomOptions) !ScalableBloomFilter {
         return error.InvalidArguments;
     }
 
-    var links = ArrayList(Link){};
+    var links: ArrayList(Link) = .empty;
     try links.ensureTotalCapacity(options.allocator, 1);
     errdefer links.deinit(options.allocator);
 

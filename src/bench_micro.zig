@@ -3,9 +3,7 @@ const bench_store = @import("benchmarks/bench_store.zig");
 const bench_commands = @import("benchmarks/bench_commands.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = std.heap.smp_allocator;
 
     std.debug.print("\n", .{});
     std.debug.print("=" ** 100 ++ "\n", .{});

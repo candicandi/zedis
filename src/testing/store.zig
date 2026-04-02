@@ -209,7 +209,7 @@ test "Store expire functionality" {
     try testing.expect(!store.isExpired("key1"));
 
     // Set expiration to far future
-    const now = try Io.Clock.real.now(testing.io);
+    const now = Io.Clock.real.now(testing.io);
     const future_time = now.toMilliseconds() + 1000000;
     const success = try store.expire("key1", future_time);
     try testing.expect(success);
@@ -819,4 +819,72 @@ test "Store deletion tracking increments counter" {
     const before_failed_delete = store.deletions_since_rehash;
     _ = store.delete("nonexistent");
     try testing.expectEqual(before_failed_delete, store.deletions_since_rehash);
+}
+
+test "Store evictOne allkeys_lru evicts least recently used key" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var clock = Clock.init(testing.io, 0);
+    var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
+    defer store.deinit();
+
+    try store.set("key1", "value1");
+    try store.set("key2", "value2");
+    try store.set("key3", "value3");
+
+    _ = store.get("key1");
+
+    try testing.expect(store.evictOne(.allkeys_lru));
+    try testing.expect(store.get("key2") == null);
+    try testing.expect(store.get("key1") != null);
+    try testing.expect(store.get("key3") != null);
+}
+
+test "Store evictOne volatile_lru only evicts volatile keys" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var clock = Clock.init(testing.io, 0);
+    var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
+    defer store.deinit();
+
+    try store.set("persistent", "value");
+    try store.set("ttl1", "value1");
+    try store.set("ttl2", "value2");
+
+    const now = Io.Clock.real.now(testing.io).toMilliseconds();
+    _ = try store.expire("ttl1", now + 10_000);
+    _ = try store.expire("ttl2", now + 10_000);
+
+    _ = store.get("ttl1");
+
+    try testing.expect(store.evictOne(.volatile_lru));
+    try testing.expect(store.get("ttl2") == null);
+    try testing.expect(store.get("ttl1") != null);
+    try testing.expect(store.get("persistent") != null);
+}
+
+test "Store evictOne prefers expired ttl entries before LRU tail" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var clock = Clock.init(testing.io, 0);
+    var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
+    defer store.deinit();
+
+    try store.set("fresh1", "value1");
+    try store.set("expired", "value2");
+    try store.set("fresh2", "value3");
+
+    _ = try store.expire("expired", 1);
+    _ = store.get("fresh2");
+
+    try testing.expect(store.evictOne(.allkeys_lru));
+    try testing.expect(store.get("expired") == null);
+    try testing.expect(store.get("fresh1") != null);
+    try testing.expect(store.get("fresh2") != null);
 }

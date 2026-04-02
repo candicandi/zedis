@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 /// Tracks latency measurements and calculates percentiles
 pub const LatencyTracker = struct {
@@ -91,20 +92,22 @@ pub const LatencyTracker = struct {
 /// Tracks throughput over time
 pub const ThroughputCounter = struct {
     operations: usize,
-    start_instant: std.time.Instant,
-    end_instant: std.time.Instant,
+    io: Io,
+    start_timestamp: Io.Timestamp,
+    end_timestamp: Io.Timestamp,
 
-    pub fn init() ThroughputCounter {
-        const now = std.time.Instant.now() catch unreachable;
+    pub fn init(io: Io) ThroughputCounter {
+        const now = Io.Clock.awake.now(io);
         return .{
             .operations = 0,
-            .start_instant = now,
-            .end_instant = now,
+            .io = io,
+            .start_timestamp = now,
+            .end_timestamp = now,
         };
     }
 
     pub fn start(self: *ThroughputCounter) void {
-        self.start_instant = std.time.Instant.now() catch unreachable;
+        self.start_timestamp = Io.Clock.awake.now(self.io);
         self.operations = 0;
     }
 
@@ -113,18 +116,18 @@ pub const ThroughputCounter = struct {
     }
 
     pub fn stop(self: *ThroughputCounter) void {
-        self.end_instant = std.time.Instant.now() catch unreachable;
+        self.end_timestamp = Io.Clock.awake.now(self.io);
     }
 
     pub fn opsPerSecond(self: ThroughputCounter) f64 {
-        const duration_ns = self.end_instant.since(self.start_instant);
+        const duration_ns: u64 = @intCast(self.start_timestamp.durationTo(self.end_timestamp).toNanoseconds());
         if (duration_ns == 0) return 0.0;
         const duration_s = @as(f64, @floatFromInt(duration_ns)) / 1_000_000_000.0;
         return @as(f64, @floatFromInt(self.operations)) / duration_s;
     }
 
     pub fn durationMs(self: ThroughputCounter) f64 {
-        const duration_ns = self.end_instant.since(self.start_instant);
+        const duration_ns: u64 = @intCast(self.start_timestamp.durationTo(self.end_timestamp).toNanoseconds());
         return @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
     }
 };
@@ -282,7 +285,8 @@ test "LatencyTracker" {
 }
 
 test "ThroughputCounter" {
-    var counter = ThroughputCounter.init();
+    var threaded: Io.Threaded = .init_single_threaded;
+    var counter = ThroughputCounter.init(threaded.io());
     counter.start();
 
     // Simulate some operations

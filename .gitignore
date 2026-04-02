@@ -4,3 +4,4 @@ zig-out/
 *.rdb
 *.aof
 .vscode
+.zig-global-cache/

@@ -50,7 +50,7 @@ pub fn decr(writer: *Writer, store: *Store, args: []const Value) !void {
 }
 
 fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
-    const current_value = store_ptr.map.get(key);
+    const current_value = store_ptr.get(key);
     if (current_value) |v| {
         var new_value: i64 = undefined;
 
@@ -318,7 +318,7 @@ pub fn incrbyfloat(writer: *Writer, store: *Store, args: []const Value) !void {
     };
 
     // Get current value
-    const current_value = store.map.get(key);
+    const current_value = store.get(key);
     var current_float: f64 = 0.0;
 
     if (current_value) |v| {

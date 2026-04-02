@@ -28,6 +28,8 @@ pub fn runBenchmark(
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_allocator = arena.allocator();
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
 
     // Warmup phase
     if (options.warmup_iterations > 0) {
@@ -41,7 +43,7 @@ pub fn runBenchmark(
     var tracking_allocator = metrics.TrackingAllocator.init(allocator);
     var latency_tracker = metrics.LatencyTracker.init(allocator);
     defer latency_tracker.deinit();
-    var throughput_counter = metrics.ThroughputCounter.init();
+    var throughput_counter = metrics.ThroughputCounter.init(io);
 
     const mem_before = if (options.track_memory) tracking_allocator.snapshot() else undefined;
 
@@ -50,13 +52,13 @@ pub fn runBenchmark(
 
     var i: usize = 0;
     while (i < options.iterations) : (i += 1) {
-        const start = try std.time.Instant.now();
+        const start = Io.Clock.awake.now(io);
 
         try benchFn(if (options.track_memory) tracking_allocator.allocator() else arena_allocator);
 
         if (options.track_latency) {
-            const end = try std.time.Instant.now();
-            const duration: u64 = end.since(start);
+            const end = Io.Clock.awake.now(io);
+            const duration: u64 = @intCast(start.durationTo(end).toNanoseconds());
             try latency_tracker.record(duration);
         }
 
@@ -88,6 +90,8 @@ pub fn runBenchmarkAdvanced(
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_allocator = arena.allocator();
+    var threaded: Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
 
     // Warmup phase
     if (options.warmup_iterations > 0) {
@@ -104,7 +108,7 @@ pub fn runBenchmarkAdvanced(
     var tracking_allocator = metrics.TrackingAllocator.init(allocator);
     var latency_tracker = metrics.LatencyTracker.init(allocator);
     defer latency_tracker.deinit();
-    var throughput_counter = metrics.ThroughputCounter.init();
+    var throughput_counter = metrics.ThroughputCounter.init(io);
 
     // Setup benchmark context
     var ctx = try setupFn(if (options.track_memory) tracking_allocator.allocator() else arena_allocator);
@@ -117,13 +121,13 @@ pub fn runBenchmarkAdvanced(
 
     var i: usize = 0;
     while (i < options.iterations) : (i += 1) {
-        const start = try std.time.Instant.now();
+        const start = Io.Clock.awake.now(io);
 
         try opFn(&ctx);
 
         if (options.track_latency) {
-            const end = try std.time.Instant.now();
-            const duration: u64 = end.since(start);
+            const end = Io.Clock.awake.now(io);
+            const duration: u64 = @intCast(start.durationTo(end).toNanoseconds());
             try latency_tracker.record(duration);
         }
 

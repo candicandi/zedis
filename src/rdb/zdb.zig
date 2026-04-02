@@ -169,14 +169,14 @@ pub const Writer = struct {
                 try self.writeInt(i64, expiry, .little);
             }
 
-            const value = entry.value_ptr.value;
+            const value = entry.value_ptr.*.object.value;
 
             const op_code = Writer.mapToOpCode(value);
             try self.writeByte(op_code);
 
-            try self.writeString(entry.key_ptr.*);
+            try self.writeString(entry.value_ptr.*.key);
 
-            switch (entry.value_ptr.*.value) {
+            switch (entry.value_ptr.*.object.value) {
                 .int => |i| try self.writeIntValue(i),
                 .string => |s| try self.writeString(s),
                 .short_string => |ss| try self.writeString(ss.asSlice()),

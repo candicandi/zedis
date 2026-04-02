@@ -7,6 +7,7 @@ const mem = std.mem;
 const Io = std.Io;
 const Writer = Io.Writer;
 const Clock = @import("../clock.zig");
+const PrimitiveValue = @import("../types.zig").PrimitiveValue;
 
 test "EXISTS command with existing key" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -163,7 +164,7 @@ test "TTL command with key with expiration" {
     var writer = Writer.fixed(&buffer);
 
     try store.set("mykey", "value");
-    const now = try Io.Clock.real.now(testing.io);
+    const now = Io.Clock.real.now(testing.io);
     const future_time = now.toMilliseconds() + 10000;
     _ = try store.expire("mykey", future_time);
 
@@ -193,7 +194,7 @@ test "PERSIST command with key having expiration" {
 
     try store.set("mykey", "value");
 
-    const now = try Io.Clock.real.now(testing.io);
+    const now = Io.Clock.real.now(testing.io);
     const future_time = now.toMilliseconds() + 10000;
     _ = try store.expire("mykey", future_time);
 
@@ -498,4 +499,39 @@ test "RENAME overwrites existing destination key" {
     const dest_value = store.get("dest");
     try testing.expect(dest_value != null);
     try testing.expectEqualStrings("source_value", dest_value.?.value.short_string.asSlice());
+}
+
+test "RENAME preserves list ownership" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var clock = Clock.init(testing.io, 0);
+    var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
+    defer store.deinit();
+
+    var buffer: [4096]u8 = undefined;
+    var writer = Writer.fixed(&buffer);
+
+    const list = try store.createList("source");
+    try list.append(PrimitiveValue{ .int = 42 });
+
+    const args = [_]Value{
+        .{ .data = "RENAME" },
+        .{ .data = "source" },
+        .{ .data = "dest" },
+    };
+
+    try keys_commands.rename(&writer, &store, &args);
+
+    try testing.expect(store.get("source") == null);
+
+    const renamed_list = (try store.getList("dest")).?;
+    try testing.expectEqual(@as(usize, 1), renamed_list.len());
+
+    const item = renamed_list.pop().?;
+    switch (item) {
+        .int => |value| try testing.expectEqual(@as(i64, 42), value),
+        else => return error.TestUnexpectedResult,
+    }
 }

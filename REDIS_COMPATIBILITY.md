@@ -146,12 +146,12 @@ This document outlines the compatibility of Zedis with Redis commands. The table
 | ---------- | --------- | --------------------------------------------------------- |
 | SAVE       | Yes       | Synchronously save dataset to RDB file                    |
 | BGSAVE     | No        | Asynchronously save dataset to RDB file                   |
-| FLUSHDB    | Yes       | Clear current database (synchronous only, no ASYNC mode)  |
-| FLUSHALL   | Yes       | Clear all databases (synchronous only, no ASYNC mode)     |
+| FLUSHDB    | Yes       | Clear the single store (synchronous only, no ASYNC mode)  |
+| FLUSHALL   | Yes       | Alias of FLUSHDB in single-store mode                     |
 | INFO       | No        | Get server information                                    |
 | CONFIG GET | No        | Get configuration parameters                              |
 | CONFIG SET | No        | Set configuration parameters                              |
-| DBSIZE     | Yes       | Get number of keys in database                            |
+| DBSIZE     | Yes       | Get number of keys in the single store                    |
 | LASTSAVE   | No        | Get Unix timestamp of last save                           |
 | MONITOR    | No        | Listen for all requests received by server                |
 

@@ -79,8 +79,8 @@ pub fn initWithConfig(
         .initial_capacity = config.initial_capacity,
     });
 
-    // Link KV allocator to the store for LRU eviction
-    kv_allocator.setStore(&store);
+    // Link KV allocator before eviction can be used.
+    kv_allocator.attachStore(&store);
 
     // Initialize temp arena for temporary allocations
     const temp_arena = std.heap.ArenaAllocator.init(base_allocator);

@@ -71,12 +71,10 @@ pub fn rename(writer: *Writer, store: *Store, args: []const Value) !void {
     const old_key = args[1].asSlice();
     const new_key = args[2].asSlice();
 
-    const obj = store.get(old_key) orelse {
+    const renamed = try store.renameKey(old_key, new_key);
+    if (!renamed) {
         return error.KeyNotFound;
-    };
-
-    try store.putObject(new_key, obj.*);
-    _ = store.delete(old_key);
+    }
 
     try resp.writeSimpleString(writer, "OK");
 }
