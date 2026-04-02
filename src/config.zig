@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Client = @import("./client.zig").Client;
+const ClientHandle = @import("./types.zig").ClientHandle;
 const eql = std.mem.eql;
 const parseInt = std.fmt.parseInt;
 
@@ -156,7 +157,7 @@ pub fn clientPoolSize(self: Config) usize {
 }
 
 pub fn pubsubMatrixSize(self: Config) usize {
-    return self.max_channels * self.max_subscribers_per_channel * @sizeOf(u64);
+    return self.max_channels * self.max_subscribers_per_channel * @sizeOf(ClientHandle);
 }
 
 pub fn fixedMemorySize(self: Config) usize {

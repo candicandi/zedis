@@ -13,8 +13,11 @@ const Command = @import("parser.zig").Command;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const Server = @import("./server.zig");
 const PubSubContext = @import("./commands/pubsub.zig").PubSubContext;
+const ClientMailbox = @import("./client_mailbox.zig").ClientMailbox;
+const freeMessageList = @import("./client_mailbox.zig").freeMessageList;
 const Config = @import("./config.zig");
 const resp = @import("./commands/resp.zig");
+const ClientHandle = @import("./types.zig").ClientHandle;
 
 const log = std.log.scoped(.client);
 
@@ -24,11 +27,14 @@ pub const Client = struct {
     allocator: std.mem.Allocator,
     authenticated: bool,
     client_id: u64,
+    slot_handle: ClientHandle,
     command_registry: *CommandRegistry,
     connection: Stream,
     store: *Store,
     is_in_pubsub_mode: bool,
     pubsub_context: *PubSubContext,
+    mailbox: *ClientMailbox,
+    disconnect_requested: *std.atomic.Value(bool),
     server: *Server,
     io: std.Io,
 
@@ -39,6 +45,9 @@ pub const Client = struct {
         registry: *CommandRegistry,
         server: *Server,
         store: *Store,
+        slot_handle: ClientHandle,
+        mailbox: *ClientMailbox,
+        disconnect_requested: *std.atomic.Value(bool),
         io: std.Io,
     ) Client {
         const id = next_client_id.fetchAdd(1, .monotonic);
@@ -47,11 +56,14 @@ pub const Client = struct {
             .allocator = allocator,
             .authenticated = false,
             .client_id = id,
+            .slot_handle = slot_handle,
             .command_registry = registry,
             .connection = connection,
             .store = store,
             .is_in_pubsub_mode = false,
             .pubsub_context = pubsub_context,
+            .mailbox = mailbox,
+            .disconnect_requested = disconnect_requested,
             .server = server,
             .io = io,
         };
@@ -77,6 +89,15 @@ pub const Client = struct {
         defer arena.deinit();
 
         while (true) {
+            if (self.disconnect_requested.load(.acquire)) return;
+
+            try self.flushMailbox();
+            if (self.disconnect_requested.load(.acquire)) return;
+
+            if (!try self.waitForReadable(if (self.is_in_pubsub_mode) 50 else -1)) {
+                continue;
+            }
+
             // Use arena allocator for parsing (temporary)
             const arena_allocator = arena.allocator();
 
@@ -119,6 +140,8 @@ pub const Client = struct {
 
             try self.command_registry.executeCommandClient(self, writer, command.getArgs());
 
+            try self.flushMailbox();
+
             // Reset arena to free parsing allocations
             _ = arena.reset(.retain_capacity);
 
@@ -141,5 +164,41 @@ pub const Client = struct {
     // Helper to get the store
     pub fn getCurrentStore(self: *Client) *Store {
         return self.store;
+    }
+
+    fn waitForReadable(self: *Client, timeout_ms: i32) !bool {
+        var fds = [_]pollfd{.{
+            .fd = self.connection.socket.handle,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+
+        const ready = try posix.poll(&fds, timeout_ms);
+        if (ready == 0) return false;
+
+        const revents = fds[0].revents;
+        if (revents & (std.posix.POLL.ERR | std.posix.POLL.HUP | std.posix.POLL.NVAL) != 0) {
+            return error.EndOfStream;
+        }
+
+        return revents & std.posix.POLL.IN != 0;
+    }
+
+    fn flushMailbox(self: *Client) !void {
+        const head = self.mailbox.takeAll(self.io);
+        defer freeMessageList(self.allocator, head);
+
+        if (head == null) return;
+
+        var writer_buffer: [1024 * 4]u8 = undefined;
+        var sw = self.connection.writer(self.io, &writer_buffer);
+        const writer = &sw.interface;
+
+        var current = head;
+        while (current) |node| : (current = node.next) {
+            try writer.writeAll(node.bytes);
+        }
+
+        try writer.flush();
     }
 };

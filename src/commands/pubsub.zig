@@ -6,6 +6,7 @@ const ZedisValue = store.ZedisValue;
 const Value = @import("../parser.zig").Value;
 const Server = @import("../server.zig");
 const resp = @import("../commands/resp.zig");
+const ClientHandle = @import("../types.zig").ClientHandle;
 
 pub const PubSubContext = struct {
     server: *Server,
@@ -14,32 +15,12 @@ pub const PubSubContext = struct {
         return PubSubContext{ .server = server };
     }
 
-    pub fn ensureChannelExists(self: *PubSubContext, channel_name: []const u8) !void {
-        return self.server.ensureChannelExists(channel_name);
+    pub fn subscribeToChannel(self: *PubSubContext, channel_name: []const u8, handle: ClientHandle) !void {
+        return self.server.subscribeToChannel(channel_name, handle);
     }
 
-    pub fn subscribeToChannel(self: *PubSubContext, channel_name: []const u8, client_id: u64) !void {
-        return self.server.subscribeToChannel(channel_name, client_id);
-    }
-
-    pub fn unsubscribeFromChannel(self: *PubSubContext, channel_name: []const u8, client_id: u64) !void {
-        return self.server.unsubscribeFromChannel(channel_name, client_id);
-    }
-
-    pub fn getChannelSubscribers(self: *PubSubContext, channel_name: []const u8) []const u64 {
-        return self.server.getChannelSubscribers(channel_name);
-    }
-
-    pub fn getChannelNames(self: *PubSubContext) std.StringHashMap([]u64).KeyIterator {
-        return self.server.getChannelNames();
-    }
-
-    pub fn getChannelCount(self: *PubSubContext) u32 {
-        return self.server.getChannelCount();
-    }
-
-    pub fn findClientById(self: *PubSubContext, client_id: u64) ?*Client {
-        return self.server.findClientById(client_id);
+    pub fn publishToChannel(self: *PubSubContext, channel_name: []const u8, payload: []const u8) !usize {
+        return self.server.publishToChannel(channel_name, payload);
     }
 };
 
@@ -54,14 +35,12 @@ pub fn subscribe(client: *Client, args: []const Value, writer: *std.Io.Writer) !
     var i: i64 = 0;
     for (args[1..]) |item| {
         const channel_name = item.asSlice();
-        // Ensure channel exists
-        pubsub_context.ensureChannelExists(channel_name) catch {
-            try resp.writeError(writer, "ERR failed to create channel");
-            continue;
-        };
-
         // Subscribe client to channel
-        pubsub_context.subscribeToChannel(channel_name, client.client_id) catch |err| switch (err) {
+        pubsub_context.subscribeToChannel(channel_name, client.slot_handle) catch |err| switch (err) {
+            error.ChannelLimitReached => {
+                try resp.writeError(writer, "ERR maximum number of channels reached");
+                continue;
+            },
             error.ChannelFull => {
                 try resp.writeError(writer, "ERR maximum subscribers per channel reached");
                 continue;
@@ -90,34 +69,22 @@ pub fn publish(client: *Client, args: []const Value, writer: *std.Io.Writer) !vo
     var pubsub_context = client.pubsub_context;
     const channel_name = args[1].asSlice();
     const message = args[2].asSlice();
-    var messages_sent: i64 = 0;
+    const payload = try serializePubSubMessage(client.allocator, channel_name, message);
+    defer client.allocator.free(payload);
 
-    // Get subscribers for this channel
-    const subscribers = pubsub_context.getChannelSubscribers(channel_name);
+    const messages_sent = try pubsub_context.publishToChannel(channel_name, payload);
+    try resp.writeInt(writer, @as(i64, @intCast(messages_sent)));
+}
 
-    if (subscribers.len > 0) {
-        for (subscribers) |subscriber_id| {
-            // Find the subscriber client and deliver the message
-            if (pubsub_context.findClientById(subscriber_id)) |subscriber_client| {
-                const message_tuple = .{
-                    "message",
-                    channel_name,
-                    message,
-                };
+fn serializePubSubMessage(allocator: std.mem.Allocator, channel_name: []const u8, message: []const u8) ![]u8 {
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    errdefer buffer.deinit();
 
-                var sub_writer = subscriber_client.connection.writer(client.io, &.{});
-                // Try to deliver the message, but don't fail the entire publish if one delivery fails
-                resp.writeTupleAsArray(&sub_writer.interface, message_tuple) catch |err| {
-                    std.log.warn("Failed to deliver message to client {}: {s}", .{ subscriber_id, @errorName(err) });
-                    continue;
-                };
+    resp.writeTupleAsArray(&buffer.writer, .{ "message", channel_name, message }) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
 
-                messages_sent += 1;
-            }
-        }
-    }
-
-    try resp.writeInt(writer, messages_sent);
+    return try buffer.toOwnedSlice();
 }
 
 // Test imports

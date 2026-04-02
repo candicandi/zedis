@@ -393,12 +393,9 @@ test "bloom filter false positive rate estimation" {
 
     // With 10% configured error rate and 5 items in 10-capacity filter,
     // actual false positive rate should be reasonable
-    // We'll just verify the filter is working, not the exact rate
-    std.debug.print("\nFalse positive test: {d} false positives out of {d} tests ({d:.2}%)\n", .{
-        false_positives,
-        total_tests,
-        false_positive_rate * 100.0,
-    });
+    // Keep the check broad to avoid flaky tests while still catching a saturated filter.
+    try std.testing.expect(false_positives < total_tests);
+    try std.testing.expect(false_positive_rate < 1.0);
 }
 
 test "bloom filter with different error rates" {
