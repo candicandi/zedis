@@ -47,8 +47,6 @@ pidfile: []const u8 = "/var/run/redis_6379.pid",
 loglevel: []const u8 = "notice",
 /// Log file path (empty string for stdout). Default: ""
 logfile: []const u8 = "",
-/// Number of databases. Default: 16
-databases: u32 = 16,
 /// Clock update interval in milliseconds.
 /// 0 = always use realtime syscall (most accurate, higher CPU)
 /// >0 = cache and update every N ms (good performance)
@@ -244,8 +242,6 @@ fn parseConfigLine(config: *Config, allocator: std.mem.Allocator, key: []const u
         config.loglevel = try allocator.dupe(u8, trimmed_value);
     } else if (eql(u8, key, "logfile")) {
         config.logfile = try allocator.dupe(u8, trimmed_value);
-    } else if (eql(u8, key, "databases")) {
-        config.databases = try parseInt(u32, trimmed_value, 10);
     }
     // Snapshotting
     else if (eql(u8, key, "stop-writes-on-bgsave-error")) {

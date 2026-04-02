@@ -26,8 +26,7 @@ pub const Client = struct {
     client_id: u64,
     command_registry: *CommandRegistry,
     connection: Stream,
-    current_db: u8,
-    databases: *[16]Store,
+    store: *Store,
     is_in_pubsub_mode: bool,
     pubsub_context: *PubSubContext,
     server: *Server,
@@ -39,7 +38,7 @@ pub const Client = struct {
         pubsub_context: *PubSubContext,
         registry: *CommandRegistry,
         server: *Server,
-        databases: *[16]Store,
+        store: *Store,
         io: std.Io,
     ) Client {
         const id = next_client_id.fetchAdd(1, .monotonic);
@@ -50,8 +49,7 @@ pub const Client = struct {
             .client_id = id,
             .command_registry = registry,
             .connection = connection,
-            .current_db = 0,
-            .databases = databases,
+            .store = store,
             .is_in_pubsub_mode = false,
             .pubsub_context = pubsub_context,
             .server = server,
@@ -140,8 +138,8 @@ pub const Client = struct {
         return self.authenticated or !self.server.config.requiresAuth();
     }
 
-    // Helper to get the currently selected database
+    // Helper to get the store
     pub fn getCurrentStore(self: *Client) *Store {
-        return &self.databases[self.current_db];
+        return self.store;
     }
 };

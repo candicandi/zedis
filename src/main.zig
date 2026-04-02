@@ -56,7 +56,6 @@ pub fn main(init: std.process.Init) !void {
     // Log config
     log.info("Configuration loaded:", .{});
     log.info("  Network: {s}:{d}", .{ cfg.bind, cfg.port });
-    log.info("  Databases: {d}", .{cfg.databases});
     log.info("  AOF enabled: {}", .{cfg.appendonly});
     log.info("  Memory budget: {d} MB", .{cfg.totalMemoryBudget() / (1024 * 1024)});
     log.info("  Max clients: {d}", .{cfg.max_clients});

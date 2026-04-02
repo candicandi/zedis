@@ -149,15 +149,6 @@ pub fn initRegistry(allocator: Allocator) !CommandRegistry {
         .write_to_aof = false,
     });
 
-    try registry.register(.{
-        .name = "SELECT",
-        .handler = .{ .client_handler = connection_commands.select },
-        .min_args = 2,
-        .max_args = 2,
-        .description = "Select a database (0-15)",
-        .write_to_aof = false,
-    });
-
     // List commands: LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE
 
     try registry.register(.{
@@ -484,7 +475,7 @@ pub fn initRegistry(allocator: Allocator) !CommandRegistry {
         .handler = .{ .client_handler = server_commands.flush_db },
         .min_args = 1,
         .max_args = 1,
-        .description = "Flush the current database",
+        .description = "Flush the store",
         .write_to_aof = true,
     });
 
@@ -493,7 +484,7 @@ pub fn initRegistry(allocator: Allocator) !CommandRegistry {
         .handler = .{ .client_handler = server_commands.flush_all },
         .min_args = 1,
         .max_args = 1,
-        .description = "Flush all databases",
+        .description = "Flush the store",
         .write_to_aof = true,
     });
 

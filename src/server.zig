@@ -45,7 +45,7 @@ temp_arena: std.heap.ArenaAllocator,
 
 // Custom allocator for key-value store with eviction
 kv_allocator: KeyValueAllocator,
-databases: [16]Store,
+store: Store,
 registry: CommandRegistry,
 pubsub_context: PubSubContext,
 
@@ -70,21 +70,17 @@ pub fn initWithConfig(
     // Initialize the KV allocator with eviction support
     var kv_allocator = try KeyValueAllocator.init(base_allocator, config.kv_memory_budget, config.eviction_policy);
 
-    // Initialize shared clock for all databases
+    // Initialize shared clock for the store
     var clock = Clock.init(io, config.clock_update_ms);
     try clock.start();
 
-    // Initialize 16 databases with the KV allocator (shared memory pool)
-    var databases: [16]Store = undefined;
-    for (&databases) |*db| {
-        db.* = try Store.init(kv_allocator.allocator(), io, &clock, .{
-            .initial_capacity = config.initial_capacity,
-        });
-    }
+    // Initialize the single shared store with the KV allocator
+    var store = try Store.init(kv_allocator.allocator(), io, &clock, .{
+        .initial_capacity = config.initial_capacity,
+    });
 
-    // Link KV allocator to database 0 for LRU eviction
-    // (All databases share the same KV allocator, so eviction affects all)
-    kv_allocator.setStore(&databases[0]);
+    // Link KV allocator to the store for LRU eviction
+    kv_allocator.setStore(&store);
 
     // Initialize temp arena for temporary allocations
     const temp_arena = std.heap.ArenaAllocator.init(base_allocator);
@@ -116,9 +112,9 @@ pub fn initWithConfig(
         // Arena for temporary allocations
         .temp_arena = temp_arena,
 
-        // KV allocator and databases
+        // KV allocator and store
         .kv_allocator = kv_allocator,
-        .databases = databases,
+        .store = store,
         .registry = registry,
         .pubsub_context = undefined, // Will be initialized after server creation
 
@@ -141,11 +137,10 @@ pub fn initWithConfig(
     // Prefer AOF to RDB
     // Load AOF file if it exists
     // 'true' to be replaced with user option (use aof/rdb on boot)
-    // Note: AOF/RDB currently only loads into database 0
     if (true) {
-        if (aof.Reader.init(server.temp_arena.allocator(), &server.databases[0], &server.registry, io)) |reader_value| {
+        if (aof.Reader.init(server.temp_arena.allocator(), &server.store, &server.registry, io)) |reader_value| {
             var reader = reader_value;
-            log.info("Loading AOF into database 0", .{});
+            log.info("Loading AOF into store", .{});
             reader.read() catch |err| {
                 log.warn("Failed to read AOF: {s}", .{@errorName(err)});
             };
@@ -155,12 +150,12 @@ pub fn initWithConfig(
     } else {
         // Load RDB file if it exists
         if (Reader.rdbFileExists()) {
-            if (Reader.init(server.temp_arena.allocator(), &server.databases[0])) |reader_value| {
+            if (Reader.init(server.temp_arena.allocator(), &server.store)) |reader_value| {
                 var reader = reader_value;
                 defer reader.deinit();
 
                 if (reader.readFile()) |data| {
-                    log.info("Loading RDB into database 0", .{});
+                    log.info("Loading RDB into store", .{});
                     server.createdTime = data.ctime;
                 } else |err| {
                     log.warn("Failed to read RDB: {s}", .{@errorName(err)});
@@ -184,10 +179,8 @@ pub fn deinit(self: *Server) void {
     // Network cleanup
     self.listener.deinit(self.io);
 
-    // Databases cleanup (uses KV allocator)
-    for (&self.databases) |*db| {
-        db.deinit();
-    }
+    // Store cleanup (uses KV allocator)
+    self.store.deinit();
 
     // Registry cleanup (uses temp arena)
     self.registry.deinit();
@@ -251,7 +244,7 @@ fn handleConnection(self: *Server, conn: Stream) !void {
         &self.pubsub_context,
         &self.registry,
         self,
-        &self.databases,
+        &self.store,
         self.io,
     );
 

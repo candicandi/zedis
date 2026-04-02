@@ -19,6 +19,10 @@ A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), 
 - **Pub/Sub**: Decoupled communication between services.
 - **Time Series**: Time series data structure. **Now with Gorilla compression!**
 
+## Caveats
+
+- Zedis is intentionally single-store. It does not support multiple logical databases and does not expose Redis `SELECT`. It adds complexity and segment memory. This follows the reasoning Salvatore Sanfilippo gave when he called Redis multiple databases one of his worst design decisions: https://groups.google.com/g/redis-db/c/vS5wX8X4Cjg/m/8ounBXitG4sJ
+
 ## Roadmap
 
 See the [open issues](https://github.com/barddoo/zedis/issues) for upcoming features and improvements.

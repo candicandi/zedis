@@ -7,9 +7,7 @@ const Value = @import("../parser.zig").Value;
 const resp = @import("./resp.zig");
 
 pub fn flush_all(client: *Client, _: []const Value, writer: *std.Io.Writer) !void {
-    for (client.databases) |*db| {
-        db.flush_db();
-    }
+    client.getCurrentStore().flush_db();
     try resp.writeOK(writer);
 }
 
