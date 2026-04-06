@@ -25,9 +25,6 @@ pub fn runBenchmark(
     options: BenchmarkOptions,
     comptime benchFn: fn (allocator: Allocator) anyerror!void,
 ) !BenchmarkResult {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
 
@@ -35,7 +32,7 @@ pub fn runBenchmark(
     if (options.warmup_iterations > 0) {
         var i: usize = 0;
         while (i < options.warmup_iterations) : (i += 1) {
-            try benchFn(arena_allocator);
+            try benchFn(allocator);
         }
     }
 
@@ -54,7 +51,7 @@ pub fn runBenchmark(
     while (i < options.iterations) : (i += 1) {
         const start = Io.Clock.awake.now(io);
 
-        try benchFn(if (options.track_memory) tracking_allocator.allocator() else arena_allocator);
+        try benchFn(if (options.track_memory) tracking_allocator.allocator() else allocator);
 
         if (options.track_latency) {
             const end = Io.Clock.awake.now(io);
@@ -87,15 +84,12 @@ pub fn runBenchmarkAdvanced(
     teardownFn: fn (ctx: *Context) void,
     opFn: fn (ctx: *Context) anyerror!void,
 ) !BenchmarkResult {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
     var threaded: Io.Threaded = .init_single_threaded;
     const io = threaded.io();
 
     // Warmup phase
     if (options.warmup_iterations > 0) {
-        var ctx = try setupFn(arena_allocator);
+        var ctx = try setupFn(allocator);
         defer teardownFn(&ctx);
 
         var i: usize = 0;
@@ -111,7 +105,7 @@ pub fn runBenchmarkAdvanced(
     var throughput_counter = metrics.ThroughputCounter.init(io);
 
     // Setup benchmark context
-    var ctx = try setupFn(if (options.track_memory) tracking_allocator.allocator() else arena_allocator);
+    var ctx = try setupFn(if (options.track_memory) tracking_allocator.allocator() else allocator);
     defer teardownFn(&ctx);
 
     const mem_before = if (options.track_memory) tracking_allocator.snapshot() else undefined;

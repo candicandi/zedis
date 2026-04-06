@@ -7,11 +7,8 @@ const testing = std.testing;
 const Io = std.Io;
 const Clock = @import("../clock.zig");
 
+const allocator = testing.allocator;
 test "Store init and deinit" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -20,10 +17,6 @@ test "Store init and deinit" {
 }
 
 test "Store set and get" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -37,10 +30,6 @@ test "Store set and get" {
 }
 
 test "Store setInt and get" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -54,15 +43,12 @@ test "Store setInt and get" {
 }
 
 test "Store setObject with ZedisObject" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
 
     const obj = ZedisObject{ .value = .{ .string = try allocator.dupe(u8, "test") } };
+    defer allocator.free(obj.value.string);
     try store.putObject("key1", obj);
 
     const result = store.get("key1");
@@ -71,10 +57,6 @@ test "Store setObject with ZedisObject" {
 }
 
 test "Store delete existing key" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -90,10 +72,6 @@ test "Store delete existing key" {
 }
 
 test "Store delete non-existing key" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -103,10 +81,6 @@ test "Store delete non-existing key" {
 }
 
 test "Store exists" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -121,10 +95,6 @@ test "Store exists" {
 }
 
 test "Store getType" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -139,10 +109,6 @@ test "Store getType" {
 }
 
 test "Store overwrite existing key" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -163,10 +129,6 @@ test "Store overwrite existing key" {
 }
 
 test "Store overwrite string with integer" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -180,10 +142,6 @@ test "Store overwrite string with integer" {
 }
 
 test "Store overwrite integer with string" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -197,10 +155,6 @@ test "Store overwrite integer with string" {
 }
 
 test "Store expire functionality" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -225,10 +179,6 @@ test "Store expire functionality" {
 }
 
 test "Store expire non-existing key" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -238,10 +188,6 @@ test "Store expire non-existing key" {
 }
 
 test "Store delete removes from expiration map" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -255,10 +201,6 @@ test "Store delete removes from expiration map" {
 }
 
 test "Store multiple keys with different types" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -277,10 +219,6 @@ test "Store multiple keys with different types" {
 }
 
 test "Store empty string values" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -293,10 +231,6 @@ test "Store empty string values" {
 }
 
 test "Store zero integer values" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -309,10 +243,6 @@ test "Store zero integer values" {
 }
 
 test "Store createList and getList" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -328,10 +258,6 @@ test "Store createList and getList" {
 }
 
 test "Store list append and insert operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -356,10 +282,6 @@ test "Store list append and insert operations" {
 }
 
 test "Store list with mixed value types" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -377,10 +299,6 @@ test "Store list with mixed value types" {
 }
 
 test "Store getList with wrong type" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -392,10 +310,6 @@ test "Store getList with wrong type" {
 }
 
 test "Store list type checking" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -405,10 +319,6 @@ test "Store list type checking" {
 }
 
 test "Store overwrite string with list" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -425,10 +335,6 @@ test "Store overwrite string with list" {
 }
 
 test "Store overwrite list with string" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -446,10 +352,6 @@ test "Store overwrite list with string" {
 }
 
 test "Store delete list key" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -469,10 +371,6 @@ test "Store delete list key" {
 }
 
 test "Store empty list operations" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -490,10 +388,6 @@ test "Store empty list operations" {
 }
 
 test "Store flush_db removes all keys" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -534,10 +428,6 @@ test "Store flush_db removes all keys" {
 }
 
 test "Store flush_db on empty store" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -551,10 +441,6 @@ test "Store flush_db on empty store" {
 }
 
 test "Store flush_db allows reuse after flush" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 4096 });
     defer store.deinit();
@@ -583,10 +469,6 @@ test "Store flush_db allows reuse after flush" {
 }
 
 test "Store maintenance() rehashes and reduces capacity" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
     defer store.deinit();
@@ -595,6 +477,7 @@ test "Store maintenance() rehashes and reduces capacity" {
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         try store.set(key, "value");
     }
 
@@ -607,6 +490,7 @@ test "Store maintenance() rehashes and reduces capacity" {
     i = 0;
     while (i < 500) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         const deleted = store.delete(key);
         try testing.expect(deleted);
     }
@@ -614,8 +498,8 @@ test "Store maintenance() rehashes and reduces capacity" {
     const size_after_delete = store.map.count();
     try testing.expectEqual(@as(usize, 500), size_after_delete);
 
-    // Capacity should still be large (tombstones remain)
-    try testing.expectEqual(capacity_before, store.map.capacity());
+    // Deletes may trigger automatic maintenance, but capacity should never grow here.
+    try testing.expect(store.map.capacity() <= capacity_before);
 
     // Run maintenance to clean up tombstones
     store.maintenance();
@@ -633,6 +517,7 @@ test "Store maintenance() rehashes and reduces capacity" {
     i = 500;
     while (i < 1000) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         const result = store.get(key);
         try testing.expect(result != null);
         try testing.expectEqualStrings("value", result.?.value.short_string.asSlice());
@@ -640,10 +525,6 @@ test "Store maintenance() rehashes and reduces capacity" {
 }
 
 test "Store maintenance() resets deletion counter" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
     defer store.deinit();
@@ -652,6 +533,7 @@ test "Store maintenance() resets deletion counter" {
     var i: usize = 0;
     while (i < 100) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         try store.set(key, "value");
         _ = store.delete(key);
     }
@@ -666,10 +548,6 @@ test "Store maintenance() resets deletion counter" {
 }
 
 test "Store maybeMaintenance() respects rate limiting" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
     defer store.deinit();
@@ -678,6 +556,7 @@ test "Store maybeMaintenance() respects rate limiting" {
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         try store.set(key, "value");
     }
 
@@ -685,6 +564,7 @@ test "Store maybeMaintenance() respects rate limiting" {
     i = 0;
     while (i < 700) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         _ = store.delete(key);
     }
 
@@ -715,10 +595,6 @@ test "Store maybeMaintenance() respects rate limiting" {
 }
 
 test "Store maybeMaintenance() triggers on 50% waste threshold" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
     defer store.deinit();
@@ -727,6 +603,7 @@ test "Store maybeMaintenance() triggers on 50% waste threshold" {
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         try store.set(key, "value");
     }
 
@@ -738,6 +615,7 @@ test "Store maybeMaintenance() triggers on 50% waste threshold" {
     i = 0;
     while (i < target_deletions) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         _ = store.delete(key);
     }
 
@@ -752,10 +630,6 @@ test "Store maybeMaintenance() triggers on 50% waste threshold" {
 }
 
 test "Store maybeMaintenance() triggers on 25% deletions threshold" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
     defer store.deinit();
@@ -764,20 +638,26 @@ test "Store maybeMaintenance() triggers on 25% deletions threshold" {
     var i: usize = 0;
     while (i < 500) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         try store.set(key, "value");
     }
 
     const capacity = store.map.capacity();
     const threshold = capacity / 4;
 
+    // Block the implicit maintenance calls inside delete() so this test can
+    // deterministically verify the explicit maybeMaintenance() invocation.
+    store.last_maintenance_check = store.clock.now().toMilliseconds() + 60_000;
+
     // Delete exactly threshold + 1 keys to trigger maintenance
     i = 0;
     while (i < threshold + 1) : (i += 1) {
         const key = try std.fmt.allocPrint(allocator, "key{d}", .{i});
+        defer allocator.free(key);
         _ = store.delete(key);
     }
 
-    try testing.expect(store.deletions_since_rehash > threshold);
+    try testing.expectEqual(threshold + 1, store.deletions_since_rehash);
 
     // Reset last_maintenance_check to avoid rate limiting
     store.last_maintenance_check = 0;
@@ -790,10 +670,6 @@ test "Store maybeMaintenance() triggers on 25% deletions threshold" {
 }
 
 test "Store deletion tracking increments counter" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
     var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
     defer store.deinit();
@@ -805,6 +681,10 @@ test "Store deletion tracking increments counter" {
     try store.set("key1", "value1");
     try store.set("key2", "value2");
     try store.set("key3", "value3");
+
+    // Keep delete() from auto-triggering maintenance so we can verify the
+    // raw deletion counter behavior directly.
+    store.last_maintenance_check = store.clock.now().toMilliseconds() + 60_000;
 
     _ = store.delete("key1");
     try testing.expect(store.deletions_since_rehash >= 1);
@@ -822,12 +702,12 @@ test "Store deletion tracking increments counter" {
 }
 
 test "Store evictOne allkeys_lru evicts least recently used key" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
-    var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
+    var store = try Store.init(allocator, testing.io, &clock, .{
+        .initial_capacity = 16,
+        .eviction_policy = .allkeys_lru,
+        .maxmemory_samples = 5,
+    });
     defer store.deinit();
 
     try store.set("key1", "value1");
@@ -843,12 +723,12 @@ test "Store evictOne allkeys_lru evicts least recently used key" {
 }
 
 test "Store evictOne volatile_lru only evicts volatile keys" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
-    var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
+    var store = try Store.init(allocator, testing.io, &clock, .{
+        .initial_capacity = 16,
+        .eviction_policy = .volatile_lru,
+        .maxmemory_samples = 5,
+    });
     defer store.deinit();
 
     try store.set("persistent", "value");
@@ -868,12 +748,12 @@ test "Store evictOne volatile_lru only evicts volatile keys" {
 }
 
 test "Store evictOne prefers expired ttl entries before LRU tail" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     var clock = Clock.init(testing.io, 0);
-    var store = try Store.init(allocator, testing.io, &clock, .{ .initial_capacity = 16 });
+    var store = try Store.init(allocator, testing.io, &clock, .{
+        .initial_capacity = 16,
+        .eviction_policy = .allkeys_lru,
+        .maxmemory_samples = 5,
+    });
     defer store.deinit();
 
     try store.set("fresh1", "value1");

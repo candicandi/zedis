@@ -8,8 +8,8 @@ const Clock = @import("../clock.zig");
 
 const BenchContext = struct {
     threaded: Io.Threaded,
-    clock: Clock,
-    store: Store,
+    clock: *Clock,
+    store: *Store,
     keys: [][]const u8,
     values: [][]const u8,
     allocator: Allocator,
@@ -27,8 +27,16 @@ const BenchContext = struct {
         errdefer allocator.free(ctx.keys);
         errdefer allocator.free(ctx.values);
 
-        ctx.clock = Clock.init(ctx.threaded.io(), 0);
-        ctx.store = try Store.init(allocator, ctx.threaded.io(), &ctx.clock, .{});
+        ctx.clock = try allocator.create(Clock);
+        errdefer allocator.destroy(ctx.clock);
+        ctx.clock.* = Clock.init(ctx.threaded.io(), 0);
+
+        ctx.store = try allocator.create(Store);
+        errdefer allocator.destroy(ctx.store);
+        ctx.store.* = try Store.init(allocator, ctx.threaded.io(), ctx.clock, .{
+            .eviction_policy = .allkeys_lru,
+            .maxmemory_samples = 5,
+        });
         errdefer ctx.store.deinit();
 
         for (ctx.keys, 0..) |*key, i| {
@@ -47,6 +55,21 @@ const BenchContext = struct {
         return init(allocator, 10_000);
     }
 
+    pub fn initPopulated(allocator: Allocator, key_count: usize) !BenchContext {
+        var ctx = try init(allocator, key_count);
+        errdefer ctx.deinit();
+
+        for (ctx.keys, ctx.values) |key, value| {
+            try ctx.store.set(key, value);
+        }
+
+        return ctx;
+    }
+
+    pub fn initPopulatedDefault(allocator: Allocator) !BenchContext {
+        return initPopulated(allocator, 10_000);
+    }
+
     pub fn deinit(self: *BenchContext) void {
         for (self.keys) |key| {
             self.allocator.free(key);
@@ -57,6 +80,8 @@ const BenchContext = struct {
         self.allocator.free(self.keys);
         self.allocator.free(self.values);
         self.store.deinit();
+        self.allocator.destroy(self.store);
+        self.allocator.destroy(self.clock);
     }
 };
 
@@ -122,75 +147,73 @@ fn benchInteger(ctx: *BenchContext) !void {
 
 const EvictionBenchContext = struct {
     threaded: Io.Threaded,
-    clock: Clock,
-    kv_allocator: KeyValueAllocator,
-    store: Store,
-    keys: [][]const u8,
-    values: [][]const u8,
-    allocator: Allocator,
+    clock: *Clock,
+    kv_allocator: *KeyValueAllocator,
+    store: *Store,
+    key_count: usize,
     counter: usize = 0,
 
     pub fn initDefault(allocator: Allocator) !EvictionBenchContext {
         const key_count = 256;
-        const value_len = 1024;
+        const kv_budget = 288 * 1024;
 
         var ctx = EvictionBenchContext{
             .threaded = .init_single_threaded,
             .clock = undefined,
             .kv_allocator = undefined,
             .store = undefined,
-            .keys = try allocator.alloc([]const u8, key_count),
-            .values = try allocator.alloc([]const u8, key_count),
-            .allocator = allocator,
+            .key_count = key_count,
         };
-        errdefer allocator.free(ctx.keys);
-        errdefer allocator.free(ctx.values);
 
-        ctx.clock = Clock.init(ctx.threaded.io(), 0);
-        ctx.kv_allocator = try KeyValueAllocator.init(allocator, 256 * 1024, .allkeys_lru);
+        ctx.clock = try allocator.create(Clock);
+        errdefer allocator.destroy(ctx.clock);
+        ctx.clock.* = Clock.init(ctx.threaded.io(), 0);
+        // Leave room for entry metadata, key copies, and replacement allocations
+        // while still forcing the store to evict under sustained write pressure.
+        ctx.kv_allocator = try allocator.create(KeyValueAllocator);
+        errdefer allocator.destroy(ctx.kv_allocator);
+        ctx.kv_allocator.* = try KeyValueAllocator.init(allocator, kv_budget, .allkeys_lru);
         errdefer ctx.kv_allocator.deinit();
 
-        ctx.store = try Store.init(ctx.kv_allocator.allocator(), ctx.threaded.io(), &ctx.clock, .{
-            .initial_capacity = 64,
+        ctx.store = try allocator.create(Store);
+        errdefer allocator.destroy(ctx.store);
+        ctx.store.* = try Store.init(ctx.kv_allocator.allocator(), ctx.threaded.io(), ctx.clock, .{
+            .initial_capacity = key_count,
+            .eviction_policy = .allkeys_lru,
+            .maxmemory_samples = 5,
         });
         errdefer ctx.store.deinit();
 
-        ctx.kv_allocator.attachStore(&ctx.store);
-
-        for (ctx.keys, 0..) |*key, i| {
-            key.* = try std.fmt.allocPrint(allocator, "evict-key:{d:0>4}", .{i});
-        }
-
-        for (ctx.values, 0..) |*value, i| {
-            const buffer = try allocator.alloc(u8, value_len);
-            @memset(buffer, @as(u8, @truncate(i)));
-            value.* = buffer;
-        }
+        ctx.kv_allocator.attachStore(ctx.store);
 
         return ctx;
     }
 
     pub fn deinit(self: *EvictionBenchContext) void {
-        for (self.keys) |key| {
-            self.allocator.free(key);
-        }
-        for (self.values) |value| {
-            self.allocator.free(value);
-        }
-        self.allocator.free(self.keys);
-        self.allocator.free(self.values);
+        const allocator = self.kv_allocator.base_allocator;
         self.store.deinit();
+        allocator.destroy(self.store);
         self.kv_allocator.deinit();
+        allocator.destroy(self.kv_allocator);
+        allocator.destroy(self.clock);
     }
 };
 
 fn benchEvictionPressure(ctx: *EvictionBenchContext) !void {
-    const idx = @mod(ctx.counter, ctx.keys.len);
-    const read_idx = @mod(ctx.counter / 2, ctx.keys.len);
+    const idx = @mod(ctx.counter, ctx.key_count);
+    const read_idx = @mod(ctx.counter / 2, ctx.key_count);
     ctx.counter += 1;
 
-    try ctx.store.set(ctx.keys[idx], ctx.values[idx]);
-    _ = ctx.store.get(ctx.keys[read_idx]);
+    var key_buf: [32]u8 = undefined;
+    var read_key_buf: [32]u8 = undefined;
+    var value_buf: [1024]u8 = undefined;
+
+    const key = try std.fmt.bufPrint(&key_buf, "evict-key:{d:0>4}", .{idx});
+    const read_key = try std.fmt.bufPrint(&read_key_buf, "evict-key:{d:0>4}", .{read_idx});
+    @memset(&value_buf, @as(u8, @truncate(idx)));
+
+    try ctx.store.set(key, value_buf[0..]);
+    _ = ctx.store.get(read_key);
 }
 
 pub fn runAllBenchmarks(allocator: Allocator) !void {
@@ -222,14 +245,6 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
 
     // Benchmark 2: Pure GET operations (pre-populate store first)
     {
-        var ctx = try BenchContext.init(allocator, 10_000);
-        defer ctx.deinit();
-
-        // Pre-populate with data
-        for (ctx.keys, ctx.values) |key, value| {
-            try ctx.store.set(key, value);
-        }
-
         const result = try bench_runner.runBenchmarkAdvanced(
             allocator,
             .{
@@ -240,7 +255,7 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
                 .track_memory = false, // Already populated
             },
             BenchContext,
-            BenchContext.initDefault,
+            BenchContext.initPopulatedDefault,
             BenchContext.deinit,
             benchGet,
         );
@@ -250,14 +265,6 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
 
     // Benchmark 3: Mixed workload (70% reads, 30% writes)
     {
-        var ctx = try BenchContext.init(allocator, 10_000);
-        defer ctx.deinit();
-
-        // Pre-populate with data
-        for (ctx.keys, ctx.values) |key, value| {
-            try ctx.store.set(key, value);
-        }
-
         const result = try bench_runner.runBenchmarkAdvanced(
             allocator,
             .{
@@ -268,7 +275,7 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
                 .track_memory = true,
             },
             BenchContext,
-            BenchContext.initDefault,
+            BenchContext.initPopulatedDefault,
             BenchContext.deinit,
             benchMixed,
         );
@@ -318,14 +325,6 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
 
     // Benchmark 6: EXISTS operations
     {
-        var ctx = try BenchContext.init(allocator, 10_000);
-        defer ctx.deinit();
-
-        // Pre-populate with data
-        for (ctx.keys, ctx.values) |key, value| {
-            try ctx.store.set(key, value);
-        }
-
         const result = try bench_runner.runBenchmarkAdvanced(
             allocator,
             .{
@@ -336,7 +335,7 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
                 .track_memory = false,
             },
             BenchContext,
-            BenchContext.initDefault,
+            BenchContext.initPopulatedDefault,
             BenchContext.deinit,
             benchExists,
         );
@@ -373,7 +372,7 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
                 .iterations = 50_000,
                 .warmup_iterations = 5_000,
                 .track_latency = true,
-                .track_memory = true,
+                .track_memory = false,
             },
             EvictionBenchContext,
             EvictionBenchContext.initDefault,

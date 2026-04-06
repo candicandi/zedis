@@ -13,50 +13,68 @@ const Io = std.Io;
 const Clock = @import("../clock.zig");
 
 const CommandBenchContext = struct {
-    store: Store,
+    threaded: Io.Threaded,
+    clock: *Clock,
+    store: *Store,
     registry: CommandRegistry,
     allocator: Allocator,
-    writer: Writer,
+    discarding: Writer.Discarding,
     client: Client,
     aof_writer: aof.Writer,
     counter: std.atomic.Value(usize),
 
     pub fn init(allocator: Allocator) !CommandBenchContext {
-        var threaded: Io.Threaded = .init_single_threaded;
-        const io = threaded.io();
-        var clock = Clock.init(io, 0);
-        const store = try Store.init(allocator, io, &clock, .{});
-        const registry = try initRegistry(allocator);
+        var ctx = CommandBenchContext{
+            .threaded = .init_single_threaded,
+            .clock = undefined,
+            .store = undefined,
+            .registry = undefined,
+            .allocator = allocator,
+            .discarding = undefined,
+            .client = undefined,
+            .aof_writer = undefined,
+            .counter = std.atomic.Value(usize).init(0),
+        };
+
+        const io = ctx.threaded.io();
+        ctx.clock = try allocator.create(Clock);
+        errdefer allocator.destroy(ctx.clock);
+        ctx.clock.* = Clock.init(io, 0);
+
+        ctx.store = try allocator.create(Store);
+        errdefer allocator.destroy(ctx.store);
+        ctx.store.* = try Store.init(allocator, io, ctx.clock, .{
+            .eviction_policy = .allkeys_lru,
+            .maxmemory_samples = 5,
+        });
+        errdefer ctx.store.deinit();
+
+        ctx.registry = try initRegistry(allocator);
 
         // Use discarding writer for benchmarking (we don't need output)
-        const discarding = Writer.Discarding.init(&.{});
-        const writer = discarding.writer;
+        ctx.discarding = Writer.Discarding.init(&.{});
 
         // Create dummy client and AOF writer for benchmarking
         var dummy_client: Client = undefined;
         dummy_client.authenticated = true;
         var aof_writer: aof.Writer = undefined;
         aof_writer.enabled = false; // Disable AOF for benchmarking
+        ctx.client = dummy_client;
+        ctx.aof_writer = aof_writer;
 
-        return .{
-            .store = store,
-            .registry = registry,
-            .allocator = allocator,
-            .writer = writer,
-            .client = dummy_client,
-            .aof_writer = aof_writer,
-            .counter = std.atomic.Value(usize).init(0),
-        };
+        return ctx;
     }
 
     pub fn deinit(self: *CommandBenchContext) void {
         self.registry.deinit();
         self.store.deinit();
+        self.allocator.destroy(self.store);
+        self.allocator.destroy(self.clock);
     }
 
     pub fn resetWriter(self: *CommandBenchContext) void {
-        // No-op since we're using a discarding writer
-        _ = self;
+        self.discarding.count = 0;
+        self.discarding.writer.end = 0;
     }
 };
 
@@ -75,7 +93,7 @@ fn benchCommandSet(ctx: *CommandBenchContext) !void {
         .{ .data = value },
     };
 
-    try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+    try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
 }
 
 /// Benchmark GET command (with pre-populated data)
@@ -90,7 +108,7 @@ fn benchCommandGet(ctx: *CommandBenchContext) !void {
         .{ .data = key },
     };
 
-    try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+    try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
 }
 
 /// Benchmark INCR command
@@ -105,7 +123,7 @@ fn benchCommandIncr(ctx: *CommandBenchContext) !void {
         .{ .data = key },
     };
 
-    try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+    try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
 }
 
 /// Benchmark DEL command
@@ -123,7 +141,7 @@ fn benchCommandDel(ctx: *CommandBenchContext) !void {
         .{ .data = key },
     };
 
-    try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+    try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
 }
 
 /// Benchmark EXISTS command
@@ -138,7 +156,7 @@ fn benchCommandExists(ctx: *CommandBenchContext) !void {
         .{ .data = key },
     };
 
-    try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+    try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
 }
 
 /// Benchmark LPUSH command
@@ -156,7 +174,7 @@ fn benchCommandLpush(ctx: *CommandBenchContext) !void {
         .{ .data = value },
     };
 
-    try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+    try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
 }
 
 /// Benchmark LRANGE command
@@ -173,7 +191,7 @@ fn benchCommandLrange(ctx: *CommandBenchContext) !void {
         .{ .data = "10" },
     };
 
-    try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+    try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
 }
 
 /// Benchmark RESP parsing
@@ -356,7 +374,7 @@ pub fn runAllBenchmarks(allocator: Allocator) !void {
                     .{ .data = value },
                 };
                 ctx.resetWriter();
-                try ctx.registry.executeCommand(&ctx.writer, &ctx.client, &ctx.store, &ctx.aof_writer, &args);
+                try ctx.registry.executeCommand(&ctx.discarding.writer, &ctx.client, ctx.store, &ctx.aof_writer, &args);
             }
         }
 
