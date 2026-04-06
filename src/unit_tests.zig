@@ -4,6 +4,7 @@ comptime {
 
     // Core functionality tests
     _ = @import("store.zig");
+    _ = @import("kv_allocator.zig");
     _ = @import("parser.zig");
     _ = @import("client.zig");
     _ = @import("server.zig");

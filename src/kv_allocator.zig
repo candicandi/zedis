@@ -125,7 +125,10 @@ test "KeyValueAllocator returns out of memory without eviction" {
     defer kv.deinit();
 
     var clock = Clock.init(testing.io, 0);
-    var store = try Store.init(kv.allocator(), testing.io, &clock, .{ .initial_capacity = 4 });
+    var store = try Store.init(kv.allocator(), testing.io, &clock, .{
+        .initial_capacity = 4,
+        .eviction_policy = .noeviction,
+    });
     defer store.deinit();
 
     kv.attachStore(&store);
@@ -156,7 +159,11 @@ test "KeyValueAllocator evicts under allkeys_lru pressure" {
     defer kv.deinit();
 
     var clock = Clock.init(testing.io, 0);
-    var store = try Store.init(kv.allocator(), testing.io, &clock, .{ .initial_capacity = 4 });
+    var store = try Store.init(kv.allocator(), testing.io, &clock, .{
+        .initial_capacity = 4,
+        .eviction_policy = .allkeys_lru,
+        .maxmemory_samples = 8,
+    });
     defer store.deinit();
 
     kv.attachStore(&store);
@@ -180,4 +187,76 @@ test "KeyValueAllocator evicts under allkeys_lru pressure" {
     try testing.expect(store.size() < 64);
     try testing.expect(store.get(last_key[0..last_key_len]) != null);
     try testing.expect(store.get("key-0") == null);
+}
+
+test "KeyValueAllocator survives repeated budgeted overwrite pressure" {
+    const testing = std.testing;
+
+    const key_count = 256;
+    const key_len = "evict-key:0000".len;
+    const value_len = 1024;
+
+    var kv = try KeyValueAllocator.init(testing.allocator, 288 * 1024, .allkeys_lru);
+    defer kv.deinit();
+
+    var clock = Clock.init(testing.io, 0);
+    var store = try Store.init(kv.allocator(), testing.io, &clock, .{
+        .initial_capacity = key_count,
+        .eviction_policy = .allkeys_lru,
+        .maxmemory_samples = 5,
+    });
+    defer store.deinit();
+
+    kv.attachStore(&store);
+
+    var keys: [key_count][32]u8 = undefined;
+    var values: [key_count][value_len]u8 = undefined;
+
+    for (&keys, 0..) |*key_buf, i| {
+        _ = try std.fmt.bufPrint(key_buf, "evict-key:{d:0>4}", .{i});
+    }
+
+    for (&values, 0..) |*value_buf, i| {
+        @memset(value_buf, @as(u8, @truncate(i)));
+    }
+
+    var i: usize = 0;
+    while (i < 60_000) : (i += 1) {
+        const idx = @mod(i, key_count);
+        const read_idx = @mod(i / 2, key_count);
+
+        const key = keys[idx][0..key_len];
+        const value = values[idx][0..];
+        try store.set(key, value);
+
+        const read_key = keys[read_idx][0..key_len];
+        _ = store.get(read_key);
+    }
+
+    try testing.expect(kv.getMemoryUsage() <= kv.getMemoryBudget());
+}
+
+test "KeyValueAllocator works with smp allocator parent" {
+    const base_allocator = std.heap.smp_allocator;
+
+    var kv = try KeyValueAllocator.init(base_allocator, 288 * 1024, .allkeys_lru);
+    defer kv.deinit();
+
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    var clock = Clock.init(io, 0);
+    var store = try Store.init(kv.allocator(), io, &clock, .{
+        .initial_capacity = 256,
+        .eviction_policy = .allkeys_lru,
+        .maxmemory_samples = 5,
+    });
+    defer store.deinit();
+
+    kv.attachStore(&store);
+
+    var value: [1024]u8 = undefined;
+    @memset(&value, 7);
+
+    try store.set("evict-key:0000", value[0..]);
+    try std.testing.expect(store.get("evict-key:0000") != null);
 }

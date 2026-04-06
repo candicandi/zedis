@@ -63,6 +63,7 @@ temp_arena: std.heap.ArenaAllocator,
 
 // Custom allocator for key-value store with eviction
 kv_allocator: KeyValueAllocator,
+clock: Clock,
 store: Store,
 registry: CommandRegistry,
 pubsub_context: PubSubContext,
@@ -107,14 +108,14 @@ pub fn initWithConfig(
     // Initialize shared clock for the store
     var clock = Clock.init(io, config.clock_update_ms);
     try clock.start();
+    errdefer clock.deinit();
 
     // Initialize the single shared store with the KV allocator
-    var store = try Store.init(kv_allocator.allocator(), io, &clock, .{
+    const store = try Store.init(kv_allocator.allocator(), io, &clock, .{
         .initial_capacity = config.initial_capacity,
+        .eviction_policy = config.eviction_policy,
+        .maxmemory_samples = config.maxmemory_samples,
     });
-
-    // Link KV allocator before eviction can be used.
-    kv_allocator.attachStore(&store);
 
     // Initialize temp arena for temporary allocations
     const temp_arena = std.heap.ArenaAllocator.init(base_allocator);
@@ -152,6 +153,7 @@ pub fn initWithConfig(
 
         // KV allocator and store
         .kv_allocator = kv_allocator,
+        .clock = clock,
         .store = store,
         .registry = registry,
         .pubsub_context = undefined, // Will be initialized after server creation
@@ -163,6 +165,10 @@ pub fn initWithConfig(
         // AOF
         .aof_writer = try aof.Writer.init(io, false),
     };
+
+    // Rebind self-references after the final Server value is in place.
+    server.store.clock = &server.clock;
+    server.kv_allocator.attachStore(&server.store);
 
     if (config.requiresAuth()) {
         log.info("Authentication required", .{});
@@ -216,6 +222,8 @@ pub fn initWithConfig(
 pub fn deinit(self: *Server) void {
     // Network cleanup
     self.listener.deinit(self.io);
+
+    self.clock.deinit();
 
     // Store cleanup (uses KV allocator)
     self.store.deinit();
@@ -656,6 +664,7 @@ fn initTestServer(allocator: Allocator, max_clients: u32) !Server {
         .pubsub_mutex = .init,
         .temp_arena = undefined,
         .kv_allocator = undefined,
+        .clock = Clock.init(testing.io, 0),
         .store = undefined,
         .registry = undefined,
         .pubsub_context = undefined,
@@ -668,6 +677,8 @@ fn initTestServer(allocator: Allocator, max_clients: u32) !Server {
 }
 
 fn deinitTestServer(server: *Server) void {
+    server.clock.deinit();
+
     var iterator = server.pubsub_map.iterator();
     while (iterator.next()) |entry| {
         server.base_allocator.free(entry.key_ptr.*);

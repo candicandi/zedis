@@ -145,8 +145,7 @@ test "aof writing test" {
     var cmd = try parser.parse(&reader);
     defer cmd.deinit();
 
-    const discarding = Io.Writer.Discarding.init(&.{});
-    var writer = discarding.writer;
+    var discarding = Io.Writer.Discarding.init(&.{});
 
     var dummy_client: Client = undefined;
     dummy_client.authenticated = true;
@@ -155,7 +154,7 @@ test "aof writing test" {
     aof_writer.file_writer = test_file.writer(testing.io, &.{});
     aof_writer.enabled = true;
 
-    try registry.executeCommand(&writer, &dummy_client, &store, &aof_writer, cmd.getArgs());
+    try registry.executeCommand(&discarding.writer, &dummy_client, &store, &aof_writer, cmd.getArgs());
 
     var file_reader_buffer: [8192]u8 = undefined;
     var file_reader = test_file.reader(testing.io, &file_reader_buffer);

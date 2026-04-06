@@ -53,6 +53,9 @@ logfile: []const u8 = "",
 /// >0 = cache and update every N ms (good performance)
 /// Default: 100ms
 clock_update_ms: u32 = 100,
+/// Number of candidates sampled during approximate LRU eviction.
+/// Higher values are more accurate and more expensive. Default: 5
+maxmemory_samples: u32 = 5,
 
 // Snapshotting
 /// Stop accepting writes if RDB snapshot fails. Default: yes
@@ -233,6 +236,8 @@ fn parseConfigLine(config: *Config, allocator: std.mem.Allocator, key: []const u
         config.timeout = try parseInt(u32, trimmed_value, 10);
     } else if (eql(u8, key, "tcp-keepalive")) {
         config.tcp_keepalive = try parseInt(u32, trimmed_value, 10);
+    } else if (eql(u8, key, "maxmemory-samples")) {
+        config.maxmemory_samples = try parseInt(u32, trimmed_value, 10);
     }
     // General
     else if (eql(u8, key, "daemonize")) {

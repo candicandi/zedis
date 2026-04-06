@@ -76,6 +76,8 @@ const StoreEntry = struct {
 
 pub const StoreOptions = struct {
     initial_capacity: u32 = 100,
+    eviction_policy: Config.EvictionPolicy = .allkeys_lru,
+    maxmemory_samples: u32 = 5,
 };
 
 pub const Store = struct {
@@ -85,16 +87,19 @@ pub const Store = struct {
     io: Io,
     clock: *Clock,
 
-    access_counter: std.atomic.Value(u64),
     lru_clock: std.atomic.Value(u64),
 
     lru_head: ?*StoreEntry,
     lru_tail: ?*StoreEntry,
     volatile_lru_head: ?*StoreEntry,
     volatile_lru_tail: ?*StoreEntry,
+    allkeys_sample_cursor: ?*StoreEntry,
+    volatile_sample_cursor: ?*StoreEntry,
 
     deletions_since_rehash: usize,
     last_maintenance_check: i64,
+    eviction_policy: Config.EvictionPolicy,
+    maxmemory_samples: usize,
 
     inline fn maybeResize(self: *Store) !void {
         const capacity = self.map.capacity();
@@ -117,14 +122,17 @@ pub const Store = struct {
         return .{
             .allocator = allocator,
             .map = map,
-            .access_counter = .init(0),
             .lru_clock = .init(0),
             .lru_head = null,
             .lru_tail = null,
             .volatile_lru_head = null,
             .volatile_lru_tail = null,
+            .allkeys_sample_cursor = null,
+            .volatile_sample_cursor = null,
             .deletions_since_rehash = 0,
             .last_maintenance_check = 0,
+            .eviction_policy = options.eviction_policy,
+            .maxmemory_samples = @max(@as(usize, @intCast(options.maxmemory_samples)), 1),
             .io = io,
             .clock = clock,
         };
@@ -141,14 +149,36 @@ pub const Store = struct {
         self.lru_tail = null;
         self.volatile_lru_head = null;
         self.volatile_lru_tail = null;
+        self.allkeys_sample_cursor = null;
+        self.volatile_sample_cursor = null;
     }
 
     pub inline fn size(self: Store) u32 {
         return @intCast(self.map.count());
     }
 
+    fn deleteMapEntry(self: *Store, map_entry: EntryMap.Entry) void {
+        const entry = map_entry.value_ptr.*;
+        self.map.removeByPtr(map_entry.key_ptr);
+        self.freeEntry(entry);
+        self.deletions_since_rehash += 1;
+        self.maybeMaintenance();
+    }
+
     fn nextAccessStamp(self: *Store) u64 {
         return self.lru_clock.fetchAdd(1, .monotonic) + 1;
+    }
+
+    inline fn usesGlobalLru(self: *const Store) bool {
+        return self.eviction_policy == .allkeys_lru;
+    }
+
+    inline fn tracksVolatileEntries(self: *const Store) bool {
+        return self.eviction_policy != .noeviction;
+    }
+
+    inline fn tracksAccessTime(self: *const Store) bool {
+        return self.eviction_policy != .noeviction;
     }
 
     fn cloneOwnedObject(self: *Store, object: ZedisObject) !ZedisObject {
@@ -190,6 +220,8 @@ pub const Store = struct {
     }
 
     fn detachLru(self: *Store, entry: *StoreEntry) void {
+        const fallback = entry.prev_lru orelse entry.next_lru;
+
         if (entry.prev_lru) |prev| {
             prev.next_lru = entry.next_lru;
         } else if (self.lru_head == entry) {
@@ -204,6 +236,10 @@ pub const Store = struct {
 
         entry.prev_lru = null;
         entry.next_lru = null;
+
+        if (self.allkeys_sample_cursor == entry) {
+            self.allkeys_sample_cursor = fallback;
+        }
     }
 
     fn attachLruHead(self: *Store, entry: *StoreEntry) void {
@@ -219,13 +255,9 @@ pub const Store = struct {
         self.lru_head = entry;
     }
 
-    fn moveToLruHead(self: *Store, entry: *StoreEntry) void {
-        if (self.lru_head == entry) return;
-        self.detachLru(entry);
-        self.attachLruHead(entry);
-    }
-
     fn detachVolatile(self: *Store, entry: *StoreEntry) void {
+        const fallback = entry.prev_volatile orelse entry.next_volatile;
+
         if (entry.prev_volatile) |prev| {
             prev.next_volatile = entry.next_volatile;
         } else if (self.volatile_lru_head == entry) {
@@ -240,6 +272,10 @@ pub const Store = struct {
 
         entry.prev_volatile = null;
         entry.next_volatile = null;
+
+        if (self.volatile_sample_cursor == entry) {
+            self.volatile_sample_cursor = fallback;
+        }
     }
 
     fn attachVolatileHead(self: *Store, entry: *StoreEntry) void {
@@ -255,23 +291,13 @@ pub const Store = struct {
         self.volatile_lru_head = entry;
     }
 
-    fn moveToVolatileHead(self: *Store, entry: *StoreEntry) void {
-        if (entry.expires_at == null) return;
-        if (self.volatile_lru_head == entry) return;
-        self.detachVolatile(entry);
-        self.attachVolatileHead(entry);
-    }
-
-    fn touchGlobal(self: *Store, entry: *StoreEntry) void {
+    fn recordAccess(self: *Store, entry: *StoreEntry) void {
+        if (!self.tracksAccessTime()) return;
         entry.last_access = self.nextAccessStamp();
-        self.moveToLruHead(entry);
     }
 
     fn touchEntry(self: *Store, entry: *StoreEntry) void {
-        self.touchGlobal(entry);
-        if (entry.expires_at != null) {
-            self.moveToVolatileHead(entry);
-        }
+        self.recordAccess(entry);
     }
 
     fn freeEntry(self: *Store, entry: *StoreEntry) void {
@@ -283,12 +309,13 @@ pub const Store = struct {
     }
 
     fn resolveEntry(self: *Store, key: []const u8, touch: bool) ?*StoreEntry {
-        const entry = self.map.get(key) orelse return null;
+        const map_entry = self.map.getEntry(key) orelse return null;
+        const entry = map_entry.value_ptr.*;
 
         if (entry.expires_at) |expiration_time| {
             const now = self.clock.now().toMilliseconds();
             if (now > expiration_time) {
-                _ = self.delete(key);
+                self.deleteMapEntry(map_entry);
                 return null;
             }
         }
@@ -331,13 +358,15 @@ pub const Store = struct {
                 return error.AlreadyExists;
             }
 
+            // Mark the entry as recently used before allocating the replacement
+            // value so LRU-driven allocators don't evict the key being updated.
+            self.touchEntry(entry);
+
             const new_object = try self.cloneOwnedObject(object);
             errdefer self.freeObjectValue(new_object);
 
             self.freeObjectValue(entry.object);
             entry.object = new_object;
-            self.touchEntry(entry);
-            self.maybeMaintenance();
             return;
         }
 
@@ -355,22 +384,20 @@ pub const Store = struct {
         entry.* = .{
             .key = owned_key,
             .object = new_object,
-            .last_access = self.nextAccessStamp(),
+            .last_access = if (self.tracksAccessTime()) self.nextAccessStamp() else 0,
         };
 
         try self.map.put(self.allocator, entry.key, entry);
-        self.attachLruHead(entry);
-        self.maybeMaintenance();
+        if (self.usesGlobalLru()) {
+            self.attachLruHead(entry);
+        }
     }
 
     pub fn delete(self: *Store, key: []const u8) bool {
         assert(key.len > 0);
 
-        const entry = self.map.get(key) orelse return false;
-        _ = self.map.remove(key);
-        self.freeEntry(entry);
-        self.deletions_since_rehash += 1;
-        self.maybeMaintenance();
+        const map_entry = self.map.getEntry(key) orelse return false;
+        self.deleteMapEntry(map_entry);
         return true;
     }
 
@@ -467,11 +494,14 @@ pub const Store = struct {
 
         const entry = self.map.get(key) orelse return false;
         entry.expires_at = time;
-        self.touchGlobal(entry);
-        if (entry.prev_volatile != null or entry.next_volatile != null or self.volatile_lru_head == entry) {
-            self.moveToVolatileHead(entry);
-        } else {
-            self.attachVolatileHead(entry);
+        self.touchEntry(entry);
+        if (self.tracksVolatileEntries()) {
+            if (entry.prev_volatile != null or entry.next_volatile != null or self.volatile_lru_head == entry) {
+                self.detachVolatile(entry);
+                self.attachVolatileHead(entry);
+            } else {
+                self.attachVolatileHead(entry);
+            }
         }
         return true;
     }
@@ -495,8 +525,10 @@ pub const Store = struct {
         if (entry.expires_at == null) return false;
 
         entry.expires_at = null;
-        self.detachVolatile(entry);
-        self.touchGlobal(entry);
+        if (self.tracksVolatileEntries()) {
+            self.detachVolatile(entry);
+        }
+        self.touchEntry(entry);
         return true;
     }
 
@@ -529,6 +561,8 @@ pub const Store = struct {
         self.lru_tail = null;
         self.volatile_lru_head = null;
         self.volatile_lru_tail = null;
+        self.allkeys_sample_cursor = null;
+        self.volatile_sample_cursor = null;
         self.deletions_since_rehash = 0;
     }
 
@@ -555,17 +589,69 @@ pub const Store = struct {
         return false;
     }
 
+    fn sampleGlobalVictim(self: *Store) ?*StoreEntry {
+        const start = self.allkeys_sample_cursor orelse self.lru_tail orelse return null;
+
+        var best = start;
+        var current = start;
+        var scanned: usize = 0;
+        var next_cursor: ?*StoreEntry = null;
+
+        while (true) {
+            if (current.last_access < best.last_access) {
+                best = current;
+            }
+
+            scanned += 1;
+            next_cursor = current.prev_lru orelse self.lru_tail;
+
+            if (scanned >= self.maxmemory_samples) break;
+            if (next_cursor == null or next_cursor.? == start) break;
+
+            current = next_cursor.?;
+        }
+
+        self.allkeys_sample_cursor = next_cursor;
+        return best;
+    }
+
+    fn sampleVolatileVictim(self: *Store) ?*StoreEntry {
+        const start = self.volatile_sample_cursor orelse self.volatile_lru_tail orelse return null;
+
+        var best = start;
+        var current = start;
+        var scanned: usize = 0;
+        var next_cursor: ?*StoreEntry = null;
+
+        while (true) {
+            if (current.last_access < best.last_access) {
+                best = current;
+            }
+
+            scanned += 1;
+            next_cursor = current.prev_volatile orelse self.volatile_lru_tail;
+
+            if (scanned >= self.maxmemory_samples) break;
+            if (next_cursor == null or next_cursor.? == start) break;
+
+            current = next_cursor.?;
+        }
+
+        self.volatile_sample_cursor = next_cursor;
+        return best;
+    }
+
     pub fn evictOne(self: *Store, policy: Config.EvictionPolicy) bool {
         switch (policy) {
             .noeviction => return false,
             .allkeys_lru => {
                 if (self.evictExpiredVolatile()) return true;
-                const victim = self.lru_tail orelse return false;
+                const victim = self.sampleGlobalVictim() orelse return false;
                 return self.delete(victim.key);
             },
             .volatile_lru => {
                 if (self.evictExpiredVolatile()) return true;
-                const victim = self.volatile_lru_tail orelse return false;
+                const victim = self.sampleVolatileVictim() orelse return false;
                 return self.delete(victim.key);
             },
         }

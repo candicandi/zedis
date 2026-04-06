@@ -34,7 +34,7 @@ pub fn start(self: *Clock) !void {
 
 pub fn deinit(self: *Clock) void {
     if (self.update_task) |*task| {
-        _ = task.cancel(self.io);
+        task.cancel(self.io) catch {};
         self.update_task = null;
     }
 }
