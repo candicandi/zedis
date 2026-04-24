@@ -48,10 +48,10 @@ jobs:
             target: aarch64-macos
             binary: zedis
             ext: ""
-          - platform: windows-x86_64
-            target: x86_64-windows
-            binary: zedis.exe
-            ext: ".exe"
+          # - platform: windows-x86_64
+          #   target: x86_64-windows
+          #   binary: zedis.exe
+          #   ext: ".exe"
 
     steps:
       - name: Checkout code
@@ -115,7 +115,7 @@ jobs:
             zedis-${{ steps.version.outputs.VERSION }}-linux-aarch64
             zedis-${{ steps.version.outputs.VERSION }}-macos-x86_64
             zedis-${{ steps.version.outputs.VERSION }}-macos-arm64
-            zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe
+            # zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe
             SHA256SUMS
           body: |
             ${{ steps.changelog.outputs.changes }}
@@ -147,8 +147,6 @@ jobs:
             curl -Lo zedis https://github.com/charlesfonseca/zedis/releases/download/${{ steps.version.outputs.VERSION }}/zedis-${{ steps.version.outputs.VERSION }}-macos-x86_64
             chmod +x zedis && sudo mv zedis /usr/local/bin/
             ```
-
-            **Windows** — download `zedis-${{ steps.version.outputs.VERSION }}-windows-x86_64.exe` from the assets above.
 
             ### Verify checksums
 
