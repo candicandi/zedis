@@ -15,6 +15,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [0.1.0] - 2026-04-23
+
+### Added
+
+- Add configuration file support with production-oriented defaults for memory, connections, and eviction tuning.
+- Add client mailbox infrastructure for buffered server-to-client message delivery.
+- Add server architecture and memory architecture documentation.
+
+### Fixed
+
+- Fix Zig 0.16 compatibility issues across the server, parser, store, and benchmark paths.
+- Improve client/pubsub handle tracking during disconnect and mailbox delivery.
+
+### Changed
+
+- Migrate the runtime to Zig's newer I/O model and use `std.Io.Threaded` for the current server architecture.
+- Refactor command execution around async connection tasks, a dedicated store thread, and mailbox-based response delivery.
+- Rework store allocation, memory accounting, and eviction policy behavior.
+- Remove multi-database support and keep Zedis intentionally single-store.
+- Update benchmarking support and project documentation for the current architecture.
+
 ## [0.0.8] - 2026-01-28
 
 ### Added
@@ -141,5 +162,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No Redis modules support
 - FLUSHDB/FLUSHALL are synchronous only (no ASYNC mode)
 
-[Unreleased]: https://github.com/bardoo/zedis/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/bardoo/zedis/releases/tag/v0.1.0
+[Unreleased]: https://github.com/bardoo/zedis/compare/0.1.0...HEAD
+[0.1.0]: https://github.com/bardoo/zedis/releases/tag/0.1.0
