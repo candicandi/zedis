@@ -338,16 +338,7 @@ pub const Store = struct {
     }
 
     pub fn set(self: *Store, key: []const u8, value: []const u8) !void {
-        if (value.len == 0) {
-            try self.putObject(key, .{ .value = .{ .short_string = ShortString.fromSlice(value) } });
-            return;
-        }
-
-        if (std.fmt.parseInt(i64, value, 10)) |int_value| {
-            try self.putObject(key, .{ .value = .{ .int = int_value } });
-        } else |_| {
-            try self.setString(key, value);
-        }
+        try self.setString(key, value);
     }
 
     pub inline fn putObject(self: *Store, key: []const u8, object: ZedisObject) !void {

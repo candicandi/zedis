@@ -30,7 +30,7 @@ pub const CommandNode = struct {
     args: []Value,
     arg_data: []u8, // owned heap buffer for all Value.data slices
     client: *Client,
-    done: std.atomic.Value(bool) = .init(false),
+    done: std.Io.Event = .unset,
     next: ?*CommandNode = null,
 };
 
@@ -105,8 +105,12 @@ pubsub_mutex: std.atomic.Mutex = .unlocked,
 
 // Command queue: client threads push, store thread pops
 command_queue: CommandQueue,
+command_queue_event: std.Io.Event = .unset,
 store_thread: ?std.Thread = null,
 store_thread_stop: std.atomic.Value(bool) = .init(false),
+
+// Mutex for direct client-thread store access (bypasses store thread)
+store_mutex: std.atomic.Mutex = .unlocked,
 
 // Arena for temporary/short-lived allocations
 temp_arena: std.heap.ArenaAllocator,
@@ -203,6 +207,7 @@ pub fn initWithConfig(
         .pubsub_map = .init(base_allocator),
         .pubsub_mutex = .unlocked,
         .command_queue = .{},
+        .command_queue_event = .unset,
         .io = io,
 
         // Fixed allocations - heap allocated
@@ -283,6 +288,7 @@ pub fn initWithConfig(
 pub fn deinit(self: *Server) void {
     // Stop store thread and drain queue
     self.store_thread_stop.store(true, .release);
+    self.command_queue_event.set(self.io);
     if (self.store_thread) |t| {
         t.join();
     }
@@ -290,7 +296,7 @@ pub fn deinit(self: *Server) void {
     while (self.command_queue.popAll()) |head| {
         var node: ?*CommandNode = head;
         while (node) |n| {
-            n.done.store(true, .release);
+            n.done.set(self.io);
             node = n.next;
         }
     }
@@ -331,65 +337,54 @@ pub fn deinit(self: *Server) void {
 }
 
 fn storeThreadLoop(server: *Server) void {
-    var spin_count: usize = 0;
-
     while (!server.store_thread_stop.load(.acquire)) {
         if (server.command_queue.popAll()) |head| {
-            spin_count = 0;
             var node: ?*CommandNode = head;
             while (node) |n| {
                 const next = n.next;
                 server.processCommand(n);
-                n.done.store(true, .release);
+                n.done.set(server.io);
                 node = next;
             }
         } else {
-            spin_count += 1;
-            if (spin_count > 100) {
-                std.Thread.yield() catch {};
-                spin_count = 0;
-            } else {
-                std.atomic.spinLoopHint();
-            }
+            server.command_queue_event.waitUncancelable(server.io);
+            server.command_queue_event.reset();
         }
     }
 }
 
 fn processCommand(self: *Server, node: *CommandNode) void {
+    self.processCommandDirect(node.client, node.args);
+}
+
+pub fn processCommandDirect(self: *Server, client: *Client, args: []const Value) void {
     var alloc_writer = std.Io.Writer.Allocating.init(self.base_allocator);
     defer alloc_writer.deinit();
 
-    const cmd_name = if (node.args.len > 0) node.args[0].asSlice() else "<empty>";
-    log.debug("store thread: processing cmd={s} client_id={d}", .{ cmd_name, node.client.client_id });
-
     self.registry.executeCommand(
         &alloc_writer.writer,
-        node.client,
-        node.client.getCurrentStore(),
+        client,
+        client.getCurrentStore(),
         &self.aof_writer,
-        node.args,
+        args,
     ) catch |err| {
         log.err("Command execution failed: {s}", .{@errorName(err)});
     };
 
     const response = alloc_writer.toOwnedSlice() catch return;
-    defer self.base_allocator.free(response);
-
-    log.debug("store thread: response len={d} for client_id={d}", .{ response.len, node.client.client_id });
-
     if (response.len == 0) return;
+    // `response` is now owned by us; we will transfer it to the mailbox node.
 
-    const msg_node = self.base_allocator.create(MessageNode) catch return;
-    const owned = self.base_allocator.dupe(u8, response) catch {
-        self.base_allocator.destroy(msg_node);
+    const msg_node = self.base_allocator.create(MessageNode) catch {
+        self.base_allocator.free(response);
         return;
     };
     msg_node.* = .{
-        .bytes = owned,
+        .bytes = response,
         .next = null,
     };
 
-    const client_slot = node.client.slot_handle;
+    const client_slot = client.slot_handle;
     if (client_slot.slot_index >= self.client_slots.len) {
         log.warn("store thread: stale slot_index={d}", .{client_slot.slot_index});
         self.base_allocator.free(msg_node.bytes);
@@ -402,10 +397,10 @@ fn processCommand(self: *Server, node: *CommandNode) void {
     defer slot.mailbox.unlockAtomic();
 
     const is_active = slot.state.load(.acquire) == .active and
-        slot.generation.load(.acquire) == node.client.slot_handle.generation and
+        slot.generation.load(.acquire) == client.slot_handle.generation and
         !slot.mailbox.closed.load(.acquire);
     if (!is_active) {
-        log.warn("store thread: slot inactive for client_id={d}", .{node.client.client_id});
+        log.warn("store thread: slot inactive for client_id={d}", .{client.client_id});
         self.base_allocator.free(msg_node.bytes);
         self.base_allocator.destroy(msg_node);
         return;
@@ -432,6 +427,7 @@ pub fn listen(self: *Server) !void {
     self.store_thread = try std.Thread.spawn(.{}, storeThreadLoop, .{self});
     defer {
         self.store_thread_stop.store(true, .release);
+        self.command_queue_event.set(self.io);
         self.store_thread.?.join();
     }
 
@@ -840,8 +836,10 @@ fn initTestServer(allocator: Allocator, max_clients: u32) !Server {
         .pubsub_map = .init(allocator),
         .pubsub_mutex = .unlocked,
         .command_queue = .{},
+        .command_queue_event = .unset,
         .store_thread = null,
         .store_thread_stop = .init(false),
+        .store_mutex = .unlocked,
         .temp_arena = undefined,
         .kv_allocator = undefined,
         .clock = Clock.init(testing.io, 0),

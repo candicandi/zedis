@@ -130,59 +130,13 @@ pub const Client = struct {
                 continue;
             };
 
-            // Enqueue command for store thread (single-threaded store access)
-            // Dupe args into heap so they survive command.deinit()
-            const cmd_args = try self.allocator.dupe(Value, command.getArgs());
-            errdefer self.allocator.free(cmd_args);
-
-            // Calculate total data size needed
-            var total_data: usize = 0;
-            for (cmd_args) |arg| {
-                total_data += arg.data.len;
+            // Execute command directly in client thread (store_mutex serializes access)
+            while (!self.server.store_mutex.tryLock()) {
+                std.atomic.spinLoopHint();
             }
-            const arg_data = try self.allocator.alloc(u8, total_data);
-            errdefer self.allocator.free(arg_data);
+            self.server.processCommandDirect(self, command.getArgs());
+            self.server.store_mutex.unlock();
 
-            // Copy data and fix up pointers
-            var offset: usize = 0;
-            for (cmd_args, 0..) |*arg, i| {
-                const len = arg.data.len;
-                @memcpy(arg_data[offset..][0..len], arg.data);
-                arg.data = arg_data[offset..][0..len];
-                offset += len;
-                _ = i;
-            }
-
-            const cmd_node = try self.allocator.create(Server.CommandNode);
-            errdefer self.allocator.destroy(cmd_node);
-            cmd_node.* = .{
-                .args = cmd_args,
-                .arg_data = arg_data,
-                .client = self,
-                .done = .init(false),
-            };
-            log.debug("client {d}: enqueue cmd", .{self.client_id});
-            self.server.command_queue.push(cmd_node);
-
-            // Wait for store thread to process, flush mailbox while spinning
-            var spin_count: usize = 0;
-            while (!cmd_node.done.load(.acquire)) {
-                self.flushMailbox() catch {};
-                spin_count += 1;
-                if (spin_count > 100) {
-                    std.Thread.yield() catch {};
-                    spin_count = 0;
-                } else {
-                    std.atomic.spinLoopHint();
-                }
-            }
-            log.debug("client {d}: cmd done, flushing mailbox", .{self.client_id});
-
-            self.allocator.free(cmd_node.args);
-            self.allocator.free(cmd_node.arg_data);
-            self.allocator.destroy(cmd_node);
-
-            // Free command data AFTER store thread is done
             command.deinit();
 
             self.flushMailbox() catch return;

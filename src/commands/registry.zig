@@ -137,10 +137,6 @@ pub const CommandRegistry = struct {
         }
         const upper_name = buf[0..command_name.len];
 
-        for (command_name, 0..) |c, i| {
-            upper_name[i] = std.ascii.toUpper(c);
-        }
-
         // Skip auth check for commands that don't need it
         if (!std.mem.eql(u8, upper_name, "AUTH") and
             !std.mem.eql(u8, upper_name, "PING") and
