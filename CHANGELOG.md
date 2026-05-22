@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [0.1.2] - 2026-05-22
+
+### Changed
+
+- Upgrade to lalinsky/zio v0.12.0.
+- Switch build optimization to ReleaseSafe for consistent behavior across platforms.
+
+### Fixed
+
+- Fix store access performance and command execution overhead.
+
 ## [0.1.1] - 2026-04-24
 
 ### Added
