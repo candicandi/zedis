@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [0.1.3] - 2026-06-14
+
+### Fixed
+
+- Fix AOF subsystem.
+- Update Zig build flags for 0.16.0 API (CI/Docker).
+
+### Changed
+
+- Reduce allocations on hot paths (new `stack_writer.zig`, optimizations in server, store, and client).
+- Consolidate test suite: inline tests into source files, remove `src/testing/` directory.
+- Bump lalinsky/zio to v0.14.0.
+
 ## [0.1.2] - 2026-05-22
 
 ### Changed
@@ -193,5 +206,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No Redis modules support
 - FLUSHDB/FLUSHALL are synchronous only (no ASYNC mode)
 
-[Unreleased]: https://github.com/bardoo/zedis/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/bardoo/zedis/compare/0.1.3...HEAD
+[0.1.3]: https://github.com/bardoo/zedis/compare/0.1.2...0.1.3
+[0.1.2]: https://github.com/bardoo/zedis/compare/0.1.1...0.1.2
+[0.1.1]: https://github.com/bardoo/zedis/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/bardoo/zedis/releases/tag/0.1.0
