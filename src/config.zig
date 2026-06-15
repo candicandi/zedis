@@ -17,7 +17,6 @@ pub const EvictionPolicy = enum {
 pub const MemoryStats = struct {
     fixed_memory_used: usize,
     kv_memory_used: usize,
-    temp_arena_used: usize,
     total_allocated: usize,
     total_budget: usize,
 
@@ -148,7 +147,6 @@ max_clients: u32 = 10000, // Maximum concurrent client connections
 max_channels: u32 = 10000, // Maximum pub/sub channels (production: thousands of channels)
 max_subscribers_per_channel: u32 = 1000, // Max subscribers per channel (production: hundreds per channel)
 kv_memory_budget: usize = 2 * 1024 * 1024 * 1024, // 2GB for key-value store (production headroom)
-temp_arena_size: usize = 512 * 1024 * 1024, // 512MB for temporary allocations
 initial_capacity: u32 = 8192, // Initial hash map capacity for Store (reduces early rehashing)
 eviction_policy: EvictionPolicy = .allkeys_lru, // LRU eviction policy
 requirepass: ?[]const u8 = null, // Password authentication (null = disabled)
@@ -169,7 +167,7 @@ pub fn fixedMemorySize(self: Config) usize {
 }
 
 pub fn totalMemoryBudget(self: Config) usize {
-    return self.fixedMemorySize() + self.kv_memory_budget + self.temp_arena_size;
+    return self.fixedMemorySize() + self.kv_memory_budget;
 }
 
 pub fn requiresAuth(self: Config) bool {
@@ -318,8 +316,6 @@ fn parseConfigLine(config: *Config, allocator: std.mem.Allocator, key: []const u
         config.max_subscribers_per_channel = try parseInt(u32, trimmed_value, 10);
     } else if (eql(u8, key, "kv-memory-budget")) {
         config.kv_memory_budget = try parseMemorySize(trimmed_value);
-    } else if (eql(u8, key, "temp-arena-size")) {
-        config.temp_arena_size = try parseMemorySize(trimmed_value);
     } else if (eql(u8, key, "initial-capacity")) {
         config.initial_capacity = try parseInt(u32, trimmed_value, 10);
     } else if (eql(u8, key, "eviction-policy") or eql(u8, key, "maxmemory-policy")) {

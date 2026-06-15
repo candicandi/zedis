@@ -316,8 +316,6 @@ fn writeConfigValue(client: *Client, writer: *Writer, name: []const u8) !void {
         try writeConfigInt(writer, server_config.tcp_backlog);
     } else if (std.mem.eql(u8, name, "tcp-keepalive")) {
         try writeConfigInt(writer, server_config.tcp_keepalive);
-    } else if (std.mem.eql(u8, name, "temp-arena-size")) {
-        try writeConfigInt(writer, server_config.temp_arena_size);
     } else if (std.mem.eql(u8, name, "timeout")) {
         try writeConfigInt(writer, server_config.timeout);
     } else if (std.mem.eql(u8, name, "acllog-max-len")) {

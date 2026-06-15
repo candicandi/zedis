@@ -112,10 +112,6 @@ store_thread_stop: std.atomic.Value(bool) = .init(false),
 
 // Mutex for direct client-thread store access (bypasses store thread)
 store_mutex: std.atomic.Mutex = .unlocked,
-
-// Arena for temporary/short-lived allocations
-temp_arena: std.heap.ArenaAllocator,
-
 // Custom allocator for key-value store with eviction
 kv_allocator: KeyValueAllocator,
 clock: Clock,
@@ -182,9 +178,6 @@ pub fn initWithConfig(
         .maxmemory_samples = config.maxmemory_samples,
     });
 
-    // Initialize temp arena for temporary allocations
-    const temp_arena = std.heap.ArenaAllocator.init(base_allocator);
-
     // Initialize command registry with base allocator (lives for server lifetime)
     const registry = try command_init.initRegistry(base_allocator);
 
@@ -214,9 +207,6 @@ pub fn initWithConfig(
         // Fixed allocations - heap allocated
         .client_slots = client_slots,
         .free_list_head = .init(packFreeListHead(if (client_slots.len == 0) invalid_client_slot_index else 0, 0)),
-
-        // Arena for temporary allocations
-        .temp_arena = temp_arena,
 
         // KV allocator and store
         .kv_allocator = kv_allocator,
@@ -257,7 +247,7 @@ pub fn initWithConfig(
     // Load AOF file if it exists
     // 'true' to be replaced with user option (use aof/rdb on boot)
     if (true) {
-        if (aof.Reader.init(server.temp_arena.allocator(), &server.store, &server.registry, io, config.dir, config.appendfilename)) |reader_value| {
+        if (aof.Reader.init(base_allocator, &server.store, &server.registry, io, config.dir, config.appendfilename)) |reader_value| {
             var reader = reader_value;
             log.info("Loading AOF into store", .{});
             reader.read() catch |err| {
@@ -269,7 +259,7 @@ pub fn initWithConfig(
     } else {
         // Load RDB file if it exists
         if (Reader.rdbFileExists()) {
-            if (Reader.init(server.temp_arena.allocator(), &server.store)) |reader_value| {
+            if (Reader.init(base_allocator, &server.store)) |reader_value| {
                 var reader = reader_value;
                 defer reader.deinit();
 
@@ -285,10 +275,9 @@ pub fn initWithConfig(
         }
     }
 
-    log.info("Server initialized with hybrid allocation - Fixed: {}MB, KV: {}MB, Arena: {}MB", .{
+    log.info("Server initialized - Fixed: {}MB, KV: {}MB", .{
         config.fixedMemorySize() / (1024 * 1024),
         config.kv_memory_budget / (1024 * 1024),
-        config.temp_arena_size / (1024 * 1024),
     });
 
     return server;
@@ -337,7 +326,6 @@ pub fn deinit(self: *Server) void {
 
     // Allocator cleanup
     self.kv_allocator.deinit();
-    self.temp_arena.deinit();
 
     // AOF Deinit
     self.aof_writer.deinit();
@@ -805,9 +793,7 @@ pub fn getMemoryStats(self: *Server) Config.MemoryStats {
     return Config.MemoryStats{
         .fixed_memory_used = fixed_size,
         .kv_memory_used = self.kv_allocator.getMemoryUsage(),
-        .temp_arena_used = self.temp_arena.queryCapacity() - self.temp_arena.state.buffer_list.first.?.data.len,
-        .total_allocated = fixed_size + self.kv_allocator.getMemoryUsage() +
-            (self.temp_arena.queryCapacity() - self.temp_arena.state.buffer_list.first.?.data.len),
+        .total_allocated = fixed_size + self.kv_allocator.getMemoryUsage(),
         .total_budget = total_budget,
     };
 }
@@ -846,7 +832,6 @@ fn initTestServer(allocator: Allocator, max_clients: u32) !Server {
         .store_thread = null,
         .store_thread_stop = .init(false),
         .store_mutex = .unlocked,
-        .temp_arena = undefined,
         .kv_allocator = undefined,
         .clock = Clock.init(testing.io, 0),
         .store = undefined,
